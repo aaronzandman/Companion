@@ -112,8 +112,6 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <h2>Dispatch texts</h2>
       <div class="hint">Calls from your dispatch texts appear here automatically. Only texts in the dispatch format are read; everything else is ignored.</div>
       <div class="row"><button class="btn sec" id="scanBtn">Check last 7 days</button><button class="btn sec" id="selNew">Select new</button></div>
-      <button class="btn sec" id="importAll">Import past dispatch texts</button>
-      <div class="hint" id="importHint" style="margin-top:4px"></div>
       <button class="btn" id="sendBtn">Send to Route Planner</button>
       <div class="hint" id="sendHint" style="margin-top:6px"></div>
     </div>
@@ -167,6 +165,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <select id="edition"><option value="VA">Virginia</option><option value="AL">Alabama</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="KY">Kentucky</option><option value="NC">North Carolina</option><option value="SC">South Carolina</option><option value="TN">Tennessee</option><option value="ALL">Company-wide</option></select></label>
       <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
+      <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
+        <div class="hint" id="importHint"></div>
+        <button class="btn sec" id="importAll">Import past dispatch texts</button></div>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
     </div>
@@ -395,7 +396,7 @@ function renderPast(past){
 }
 $("pastQ").oninput=()=>{ const cutoff=Date.now()-14*864e5; renderPast((S.dispatches||[]).filter(d=>d.receivedAt<cutoff)); };
 $("importAll").onclick=()=>{
-  if(!(S.perm||{}).sms){ A.askSms(); return; }
+  if(!(S.perm||{}).sms){ toast("Allow text access first. The Texts tab shows how."); showTab("texts"); A.askSms(); return; }
   if(!confirm("Read every dispatch text already on this phone? Only texts in the dispatch format are kept, and nothing leaves your phone.")) return;
   $("importAll").disabled=true; $("importAll").textContent="Importing… this can take a moment"; A.importAll();
 };
@@ -403,7 +404,7 @@ window.onImportAll=(n,total)=>{
   $("importAll").disabled=false; $("importAll").textContent="Import past dispatch texts";
   if(n===-1){ A.askSms(); return; }
   if(n<0){ toast("Couldn't read your texts. Try again."); return; }
-  toast(n?`Imported ${n} past call${n>1?"s":""}. ${total} saved in all.`:`No new past calls found. ${total} already saved.`); refresh();
+  toast(n?`Imported ${n} past call${n>1?"s":""}. ${total} saved in all. See them on the Texts tab.`:`No new past calls found. ${total} already saved.`); refresh();
 };
 $("selNew").onclick=()=>{ const cutoff=Date.now()-14*864e5; (S.dispatches||[]).filter(d=>!d.sent&&d.receivedAt>=cutoff).forEach(d=>picked.add(d.order)); render(); };
 $("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } track("send-calls"); A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };

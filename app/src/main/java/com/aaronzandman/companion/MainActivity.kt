@@ -59,6 +59,22 @@ class MainActivity : Activity() {
                 openUrl(u); return true
             }
         }
+        // Without this, the page's "Are you sure?" questions (confirm/alert) are silently cancelled by Android.
+        web.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onJsConfirm(view: WebView, url: String?, message: String?, result: android.webkit.JsResult): Boolean {
+                android.app.AlertDialog.Builder(this@MainActivity).setTitle("Companion").setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result.confirm() }
+                    .setNegativeButton("Cancel") { _, _ -> result.cancel() }
+                    .setOnCancelListener { result.cancel() }.show()
+                return true
+            }
+            override fun onJsAlert(view: WebView, url: String?, message: String?, result: android.webkit.JsResult): Boolean {
+                android.app.AlertDialog.Builder(this@MainActivity).setTitle("Companion").setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result.confirm() }
+                    .setOnCancelListener { result.confirm() }.show()
+                return true
+            }
+        }
         web.addJavascriptInterface(Bridge(), "Android")
         setContentView(web)
         web.loadUrl("file:///android_asset/ui/index.html" + (intent?.getStringExtra("tab")?.let { "#$it" } ?: ""))
