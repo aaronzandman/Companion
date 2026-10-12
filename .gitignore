@@ -1,0 +1,7 @@
+*.jks
+*.keystore
+build/
+.gradle/
+local.properties
+app/src/main/assets/stores.json
+*.apk

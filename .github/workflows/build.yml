@@ -1,0 +1,69 @@
+name: Build Companion
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -o pipefail -e {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Get the store list from Route2
+        run: |
+          mkdir -p app/src/main/assets
+          curl -fsSL https://raw.githubusercontent.com/AaronZandman/Route2/main/source/stores.json -o app/src/main/assets/stores.json
+          python3 -c "import json;print(len(json.load(open('app/src/main/assets/stores.json'))),'stores')"
+
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then echo "$KEYSTORE_B64" | base64 -d > app/release.jks; echo "Using the Companion signing key."
+          else echo "::warning::KEYSTORE_B64 secret is not set; this build uses a temporary key, so it can't update an installed copy."; fi
+
+      - name: Build the app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Rename
+        run: cp app/build/outputs/apk/release/app-release.apk Companion.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0.${{ github.run_number }}
+          name: Companion 0.1.0.${{ github.run_number }}
+          body: "Install: download Companion.apk on your Android phone and open it. Latest: https://github.com/AaronZandman/Companion/releases/latest/download/Companion.apk"
+          files: Companion.apk
+          make_latest: true
+
+      - name: Save the build log for review (only if the build failed)
+        if: failure()
+        run: |
+          mkdir -p /tmp/log && cp build.log /tmp/log/ 2>/dev/null || echo "no build.log" > /tmp/log/build.log
+          cd /tmp/log && git init -q && git checkout -q -b build-log && git add . \
+            && git -c user.name=companion-ci -c user.email=ci@users.noreply.github.com commit -qm "build log ${{ github.run_number }}" \
+            && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" build-log

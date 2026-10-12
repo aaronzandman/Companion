@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Companion</title>
+<style>
+:root{--bg:#E9EDF0;--panel:#fff;--ink:#1C2430;--muted:#5D6875;--line:#CDD4DA;--road:#1F6B4F;--shield:#1E4E8C;--red:#B8322A;--soft:#F3F6F8;--warn:#FFF3C4;--warnink:#3A2E00;
+  --drive:#1E4E8C;--store:#1F6B4F;--stop:#8A94A0;
+  --sign:"Bahnschrift","Roboto Condensed","Arial Narrow",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#161B21;--panel:#1F262E;--ink:#E6EAEE;--muted:#9AA5B1;--line:#343E49;--road:#2E8A66;--soft:#252D36;--warn:#3A3317;--warnink:#F3E2A8;--drive:#5C8FD6;--store:#3FA67D}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Roboto,sans-serif}
+header{background:var(--road);color:#fff;padding:14px 16px 0;position:sticky;top:0;z-index:5}
+header h1{margin:0;font:700 24px/1.1 var(--sign)}
+header .sub{font-size:13px;opacity:.85}
+nav{display:flex;margin-top:10px}
+nav button{flex:1;background:none;border:0;color:#fff;opacity:.75;font:600 15px system-ui;padding:10px 0;border-bottom:3px solid transparent}
+nav button.on{opacity:1;border-bottom-color:#fff}
+nav .dot{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:#fff;color:var(--road);font-size:12px;font-weight:800}
+main{padding:12px;max-width:640px;margin:0 auto}
+section{display:none}section.on{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h2{margin:0 0 6px;font:700 19px/1.2 var(--sign)}
+.hint{font-size:13px;color:var(--muted)}
+button{font:inherit}
+.btn{border:0;border-radius:10px;padding:12px 16px;font-weight:700;background:var(--road);color:#fff;width:100%;margin-top:8px}
+.btn.sec{background:transparent;color:var(--road);border:1.5px solid var(--road)}
+.btn.red{background:var(--red)}
+.row{display:flex;gap:8px}.row .btn{flex:1}
+.warn{background:var(--warn);color:var(--warnink);border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px}
+.warn ol{margin:6px 0;padding-left:20px}
+.item{display:flex;gap:12px;align-items:flex-start;padding:12px 2px;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item input{width:24px;height:24px;margin-top:2px;flex:none;accent-color:var(--road)}
+.item .d{flex:1;min-width:0}
+.item b{display:block}
+.meta{font-size:13px;color:var(--muted)}
+.pri{display:inline-block;border-radius:4px;padding:0 6px;color:#fff;font-size:12px;font-weight:700;background:#6B7785}
+.pri.s1{background:#8E1B1B}.pri.s2{background:#C8372D}.pri.s3{background:#C98A12}
+.tag{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;background:var(--soft);color:var(--muted);border:1px solid var(--line)}
+.tag.new{background:#1E4E8C;color:#fff;border-color:#1E4E8C}
+.x{background:none;border:0;color:var(--muted);font-size:20px;padding:0 4px}
+.status{font:700 26px/1.15 var(--sign)}
+.status small{display:block;font:500 14px system-ui;color:var(--muted);margin-top:4px}
+.tot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.tot div{background:var(--soft);border-radius:10px;padding:10px;text-align:center}
+.tot b{display:block;font:700 20px var(--sign)}
+.tot span{font-size:12px;color:var(--muted)}
+.seg{display:grid;grid-template-columns:8px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.seg i{width:8px;align-self:stretch;border-radius:4px;background:var(--stop)}
+.seg i.DRIVE{background:var(--drive)}.seg i.STORE{background:var(--store)}
+.seg .t{font-size:13px;color:var(--muted)}
+.live{color:var(--road);font-weight:700}
+label.set{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+label.set:first-of-type{border-top:0}
+select,input[type=text]{font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
+.upd{display:none;background:var(--warn);color:var(--warnink);border-radius:10px;padding:12px;margin-bottom:12px}
+.upd.show{display:block}
+.empty{text-align:center;color:var(--muted);padding:18px 8px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:999px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Companion</h1>
+  <div class="sub" id="sub">Route Planner's partner on the road</div>
+  <nav>
+    <button data-tab="texts" class="on">Texts<span class="dot" id="newDot" hidden></span></button>
+    <button data-tab="timer">Timer</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+</header>
+<main>
+  <div class="upd" id="upd"></div>
+
+  <!-- TEXTS -->
+  <section id="texts" class="on">
+    <div class="warn" id="smsWarn" hidden></div>
+    <div class="card">
+      <h2>Dispatch texts</h2>
+      <div class="hint">Calls from your dispatch texts appear here automatically. Only texts in the dispatch format are read; everything else is ignored.</div>
+      <div class="row"><button class="btn sec" id="scanBtn">Check last 7 days</button><button class="btn sec" id="selNew">Select new</button></div>
+      <button class="btn" id="sendBtn">Send to Route Planner</button>
+      <div class="hint" id="sendHint" style="margin-top:6px"></div>
+    </div>
+    <div class="card" id="list"></div>
+  </section>
+
+  <!-- TIMER -->
+  <section id="timer">
+    <div class="warn" id="locWarn" hidden></div>
+    <div class="card">
+      <div class="status" id="status">Not tracking</div>
+      <button class="btn" id="dayBtn">Start my day</button>
+      <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
+      <div class="tot">
+        <div><b id="tDrive">0:00</b><span>Driving</span></div>
+        <div><b id="tStore">0:00</b><span>At stores</span></div>
+        <div><b id="tStop">0:00</b><span>Other stops</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Today</h2>
+      <div id="segs"></div>
+      <button class="btn sec" id="copyDay">Copy today's log</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="settings">
+    <div class="card">
+      <label class="set"><span><b>My Route Planner</b><br><span class="hint">Calls you send open in this planner.</span></span>
+        <select id="edition"><option value="VA">Virginia</option><option value="AL">Alabama</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="KY">Kentucky</option><option value="NC">North Carolina</option><option value="SC">South Carolina</option><option value="TN">Tennessee</option><option value="ALL">Company-wide</option></select></label>
+      <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
+      <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
+      <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
+        <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
+    </div>
+    <div class="card">
+      <h2>About</h2>
+      <div class="hint" id="about"></div>
+      <button class="btn sec" id="updBtn">Check for updates</button>
+      <button class="btn sec" id="appSet">Android app settings</button>
+      <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates and when you send calls to Route Planner.</p>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+<script>
+const $=id=>document.getElementById(id);
+const A=window.Android;
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let S={dispatches:[],today:[],tracker:{},perm:{},settings:{}}, picked=new Set(), lastSeen=+(localStorage.getItem("seen")||0);
+const info={};
+function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2400); }
+function hm(ms){ const m=Math.max(0,Math.round(ms/60000)); return Math.floor(m/60)+":"+String(m%60).padStart(2,"0"); }
+function tm(t){ return new Date(t).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}); }
+function when(t){ const d=new Date(t), today=new Date().toDateString()===d.toDateString(); return (today?"Today ":d.toLocaleDateString(undefined,{month:"numeric",day:"numeric"})+" ")+tm(t); }
+function store(n){ if(!(n in info)){ try{ info[n]=JSON.parse(A.storeInfo(n)); }catch(e){ info[n]={}; } } return info[n]; }
+
+function showTab(t){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on",s.id===t));
+  if(t==="texts"){ lastSeen=Date.now(); localStorage.setItem("seen",lastSeen); }
+  render();
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+
+function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); }
+
+function render(){
+  const p=S.perm||{};
+  $("sub").textContent = S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road";
+  // permissions
+  const w=$("smsWarn");
+  if(!p.sms){
+    w.hidden=false;
+    w.innerHTML = p.smsAsked && p.sdk>=33
+      ? `<b>Android is blocking text access.</b> Apps installed from a link need one extra step:<ol><li>Tap <b>Open app settings</b> below.</li><li>Tap the <b>⋮</b> menu (top right) and choose <b>Allow restricted settings</b>. Confirm with your PIN or fingerprint.</li><li>Come back here and tap <b>Allow text access</b>.</li></ol><div class="row"><button class="btn sec" onclick="A.openAppSettings()">Open app settings</button><button class="btn" onclick="A.askSms()">Allow text access</button></div>`
+      : `<b>Allow Companion to read dispatch texts.</b> Only texts in the dispatch format are kept; personal texts are ignored and nothing leaves your phone.<button class="btn" onclick="A.askSms()">Allow text access</button>`;
+  } else w.hidden=true;
+  const lw=$("locWarn");
+  if(!p.location){ lw.hidden=false; lw.innerHTML=`<b>Location is needed for the timer.</b> It's used only while your day is running, to tell driving from store stops.<button class="btn" onclick="A.askLocation()">Allow location</button>`; }
+  else if(!p.notify){ lw.hidden=false; lw.innerHTML=`<b>Allow notifications</b> to see when the timer is on and when new dispatch texts arrive.<button class="btn" onclick="A.askNotify()">Allow notifications</button>`; }
+  else lw.hidden=true;
+
+  // texts
+  const ds=S.dispatches||[];
+  const fresh=ds.filter(d=>d.receivedAt>lastSeen&&!d.sent).length;
+  $("newDot").hidden=!fresh; $("newDot").textContent=fresh;
+  $("list").innerHTML = ds.length ? ds.map(d=>{ const si=store(d.store);
+    return `<div class="item"><input type="checkbox" data-o="${esc(d.order)}" ${picked.has(d.order)?"checked":""} aria-label="Select ${esc(d.order)}">
+      <div class="d"><b>${esc(d.description)}</b>
+        <div class="meta">Store ${esc(d.store)}${si.city?" – "+esc(si.city):""} · #${esc(d.order)}</div>
+        <div class="meta"><span class="pri s${d.severity}">Sev ${d.severity}</span> ${when(d.receivedAt)} ${d.sent?'<span class="tag">Sent ✓</span>':'<span class="tag new">New</span>'}</div></div>
+      <button class="x" data-del="${esc(d.order)}" aria-label="Remove">×</button></div>`; }).join("")
+    : `<div class="empty">No dispatch texts yet. New ones show up here as they arrive.</div>`;
+  $("list").querySelectorAll("input[data-o]").forEach(cb=>cb.onchange=()=>{ cb.checked?picked.add(cb.dataset.o):picked.delete(cb.dataset.o); sendHint(); });
+  $("list").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ A.remove(b.dataset.del); picked.delete(b.dataset.del); refresh(); });
+  sendHint();
+
+  // timer
+  const tr=S.tracker||{}, running=!!tr.running, cur=tr.cur||{};
+  $("dayBtn").textContent=running?"End my day":"Start my day"; $("dayBtn").className="btn"+(running?" red":"");
+  $("status").innerHTML = running ? `${label(cur)}<small>since ${tm(cur.start)} · day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
+  const tot={DRIVE:0,STORE:0,STOP:0};
+  (S.today||[]).forEach(g=>tot[g.type]=(tot[g.type]||0)+(g.end-g.start));
+  $("tDrive").textContent=hm(tot.DRIVE); $("tStore").textContent=hm(tot.STORE); $("tStop").textContent=hm(tot.STOP);
+  const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
+  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)}</div></div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
+    : `<div class="empty">Nothing recorded today yet.</div>`;
+  $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
+
+  // settings
+  const st=S.settings||{};
+  if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
+  $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"250"; $("smsOn").checked=st.smsOn!==false;
+  $("about").textContent=`Version ${S.version||"?"} · ${S.stores||0} stores loaded`;
+}
+function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return "Stopped"; }
+function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
+
+$("selNew").onclick=()=>{ (S.dispatches||[]).filter(d=>!d.sent).forEach(d=>picked.add(d.order)); render(); };
+$("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };
+$("scanBtn").onclick=()=>{ const n=A.scan(); if(n<0){ A.askSms(); return; } toast(n?`Found ${n} new call${n>1?"s":""}.`:"No new dispatch texts in the last 7 days."); refresh(); };
+$("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")) A.endDay(); } else A.startDay(); };
+$("copyDay").onclick=()=>{
+  const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
+  const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=g.end-g.start);
+  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${hm(tot.DRIVE)} · At stores ${hm(tot.STORE)} · Other stops ${hm(tot.STOP)}\n`;
+  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)})`; });
+  A.copy(t);
+};
+$("edition").onchange=e=>A.setSetting("edition",e.target.value);
+$("radius").onchange=e=>A.setSetting("radius",e.target.value);
+$("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
+$("sender").onchange=e=>A.setSetting("senderFilter",e.target.value.trim());
+$("appSet").onclick=()=>A.openAppSettings();
+let manualUpd=false;
+$("updBtn").onclick=()=>{ manualUpd=true; toast("Checking…"); A.checkUpdate(); };
+function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), y=String(b).split(".").map(Number); for(let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)>(y[i]||0); } return false; }
+function onUpdate(r){
+  const u=$("upd");
+  const manual=manualUpd; manualUpd=false;
+  if(r.error){ if(manual) toast("Couldn't check for updates."); return; }
+  if(r.tag && newer(r.tag,S.version)){ u.innerHTML=`<b>Companion ${esc(r.tag.replace(/^v/,""))} is available.</b> You have ${esc(S.version)}.<button class="btn" onclick="A.open('${r.url}')">Download update</button>`; u.classList.add("show"); }
+  else { u.classList.remove("show"); if(manual) toast("You have the newest version."); }
+}
+const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings"].includes(tab)) showTab(tab);
+setInterval(()=>{ if(!document.hidden) refresh(); },5000);
+// check for updates once a day
+try{ const last=+(localStorage.getItem("updAt")||0); if(Date.now()-last>864e5){ localStorage.setItem("updAt",Date.now()); A.checkUpdate(); } }catch(e){}
+</script>
+</body>
+</html>

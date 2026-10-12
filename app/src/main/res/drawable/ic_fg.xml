@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Clock face with a road-sign shield notch: timer + route. 108dp adaptive icon canvas, content in the middle 66dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M54,28a26,26 0 1,1 -0.01,0z" />
+    <path android:fillColor="#1F6B4F" android:pathData="M54,33a21,21 0 1,1 -0.01,0z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M52,38h4v17.2l10.5,6.1 -2,3.5 -12.5,-7.2z" />
+    <path android:fillColor="#B8322A" android:pathData="M47,22h14v6h-14z" />
+</vector>
