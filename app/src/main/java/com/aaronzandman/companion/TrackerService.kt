@@ -51,7 +51,8 @@ class TrackerService : Service(), LocationListener {
         val st = Tracker.state(this)
         // Odometer: read at each possible arrival/departure, and every 2 minutes while driving.
         val boundary = st.optLong("boundary", 0)
-        if (boundary != before && boundary > 0) readOdometer(boundary)
+        if (Tracker.commuteMark(this, now)) { lastOdoTry = 0L; readOdometer(now) }   // 30 minutes into the trip from home
+        else if (boundary != before && boundary > 0) readOdometer(boundary)
         else if (st.optJSONObject("cur")?.optString("type") == "DRIVE" && now - lastOdoTry > 120_000L) readOdometer(now)
         getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, text))
     }
@@ -67,7 +68,8 @@ class TrackerService : Service(), LocationListener {
         if (!Obd.enabled(this) || !odoBusy.compareAndSet(false, true)) return
         lastOdoTry = System.currentTimeMillis()
         Thread {
-            try { Obd.readMiles(this)?.let { Obd.record(this, t, it) } } finally { odoBusy.set(false) }
+            // Stamp the reading halfway through the read (it takes a few seconds), so its time matches the miles.
+            try { val t0 = System.currentTimeMillis(); Obd.readMiles(this)?.let { Obd.record(this, (t0 + System.currentTimeMillis()) / 2, it) } } finally { odoBusy.set(false) }
         }.start()
     }
 

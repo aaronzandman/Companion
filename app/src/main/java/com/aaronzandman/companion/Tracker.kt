@@ -10,7 +10,8 @@ import org.json.JSONObject
  *  STORE  – within the store radius (default 250 m) and slow for 90 s
  *  HOME   – at the saved home location (within 200 m) and slow for 90 s
  *  STOP   – stopped somewhere that isn't a store or home for 3 min
- * Each entry also keeps the GPS distance travelled ("m", meters) for mileage when there's no odometer reading.
+ * Each entry also keeps the GPS distance travelled ("m", meters) and a minute-by-minute distance track
+ * ("trk": [seconds, meters so far]) so miles can be split exactly where they were driven when there's no odometer.
  * Entries shorter than 1 minute are dropped. State is saved so it survives the app closing.
  */
 object Tracker {
@@ -30,7 +31,7 @@ object Tracker {
     fun isRunning(c: Context) = state(c).optBoolean("running", false)
 
     fun startDay(c: Context, now: Long = System.currentTimeMillis()) = synchronized(lock) {
-        val s = JSONObject().put("running", true).put("dayStart", now)
+        val s = JSONObject().put("running", true).put("dayStart", now).put("dep", 0L).put("reached", false).put("mark", false)
             .put("cur", JSONObject().put("type", "STOP").put("store", "").put("start", now))
         save(c, s)
     }
@@ -47,6 +48,7 @@ object Tracker {
         val segs = Store.segments(c)
         val g = JSONObject().put("type", cur.optString("type")).put("store", cur.optString("store"))
             .put("start", start).put("end", end).put("m", Math.round(cur.optDouble("m", 0.0)))
+        cur.optJSONArray("trk")?.let { trk -> trk.put(JSONArray().put(end / 1000).put(Math.round(cur.optDouble("m", 0.0)))); g.put("trk", trk) }
         if (cur.optString("tag").isNotEmpty()) g.put("tag", cur.optString("tag"))
         segs.put(g)
         Store.saveSegments(c, segs)
@@ -72,6 +74,12 @@ object Tracker {
         val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", t)
         // GPS distance while moving (ignores parked jitter and impossible jumps)
         if (stepM in 0.0..5000.0 && speed >= 2.0) cur.put("m", cur.optDouble("m", 0.0) + stepM)
+        // Distance track: a point at least every 60 s, so miles can be split at any moment of a drive.
+        run {
+            val trk = cur.optJSONArray("trk") ?: JSONArray().put(JSONArray().put(cur.optLong("start") / 1000).put(0)).also { cur.put("trk", it) }
+            val lastT = trk.optJSONArray(trk.length() - 1)?.optLong(0) ?: 0L
+            if (t / 1000 - lastT >= 60) trk.put(JSONArray().put(t / 1000).put(Math.round(cur.optDouble("m", 0.0))))
+        }
         val obsType: String; val obsStore: String
         when {
             speed >= 4.5 -> { obsType = "DRIVE"; obsStore = "" }
@@ -90,6 +98,8 @@ object Tracker {
                 if (t - since >= need) {
                     close(c, cur, since)
                     s.put("cur", JSONObject().put("type", obsType).put("store", obsStore).put("start", since))
+                    if (obsType == "DRIVE" && s.optLong("dep", 0L) == 0L) s.put("dep", since)   // left home: the morning trip starts
+                    if (obsType == "STORE") s.put("reached", true)
                     s.remove("cand")
                 }
             } else {
@@ -125,6 +135,19 @@ object Tracker {
             out.put(JSONObject(it.toString()).put("end", System.currentTimeMillis()).put("live", true))
         }
         return out
+    }
+
+    /**
+     * True once, when the morning trip from home has lasted 30 minutes without reaching a Publix store:
+     * the moment personal miles end and work miles begin, so an odometer reading is taken right then.
+     */
+    fun commuteMark(c: Context, now: Long): Boolean {
+        synchronized(lock) {
+            val s = state(c)
+            val dep = s.optLong("dep", 0L)
+            if (!s.optBoolean("running") || dep == 0L || s.optBoolean("reached") || s.optBoolean("mark") || now - dep < 30 * 60_000L) return false
+            s.put("mark", true); save(c, s); return true
+        }
     }
 
     /** Marks an entry (or the one in progress) with a tag such as FUEL; empty tag clears it. */

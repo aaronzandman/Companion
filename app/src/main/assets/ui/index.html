@@ -185,7 +185,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <li><b>Evening:</b> from leaving the last Publix store to arriving home is personal. If that trip is longer than 30 minutes, the first part is work and only the last 30 minutes are personal.</li>
         <li>Time at home before you leave and after you get back is off the clock.</li>
         <li>Mark a stop as a fuel stop by tapping ⛽ on it in Today's list.</li>
-        <li>Miles come from the odometer when your adapter is connected, otherwise from GPS (marked ≈).</li>
+        <li>Miles go with the time they were driven in: miles driven during personal time are personal miles, miles driven during work time are work miles. They're measured, not shared out by time.</li>
+        <li>Miles come from the odometer when your adapter is connected (it's also read right at the 30-minute mark), otherwise from GPS distance (marked ≈).</li>
       </ul></details>
     </div>
     <div class="card">
@@ -463,11 +464,29 @@ function classify(segsIn, live){
   });
   return {pieces,notes};
 }
+// Miles are counted where they were actually driven, not shared out by time:
+// odometer readings (every 2 minutes while driving, plus one at the 30-minute mark) are filled in between readings,
+// and without an odometer the minute-by-minute GPS distance track is used.
+function odoInterp(t,g){
+  const lo=g.start-4*60e3, hi=g.end+4*60e3, rs=(S.odo||[]).filter(o=>o.t>=lo&&o.t<=hi).sort((x,y)=>x.t-y.t);
+  if(!rs.length) return null;
+  let prev=null, next=null; for(const o of rs){ if(o.t<=t) prev=o; if(o.t>=t&&!next) next=o; }
+  if(prev&&next){ if(next.t===prev.t) return prev.mi; return prev.mi+(next.mi-prev.mi)*(t-prev.t)/(next.t-prev.t); }
+  const one=prev||next; return Math.abs(one.t-t)<=4*60e3?one.mi:null;
+}
+function gpsAt(g,t){
+  const k=(g.trk||[]).map(([s,m])=>[s*1000,m]); if(k.length<2) return null;
+  if(t<=k[0][0]) return k[0][1]; if(t>=k[k.length-1][0]) return k[k.length-1][1];
+  for(let i=1;i<k.length;i++) if(t<=k[i][0]){ const [t0,m0]=k[i-1],[t1,m1]=k[i]; return m0+(m1-m0)*(t-t0)/Math.max(1,t1-t0); }
+  return null;
+}
 function pieceMiles(g,a,b){
   if(g.type!=="DRIVE") return null;
-  const oa=odoAt(a), ob=g.live&&b>=g.end?null:odoAt(b);
-  if(oa&&ob&&ob.mi>=oa.mi) return {v:ob.mi-oa.mi,src:"odometer"};
-  if(g.m) return {v:g.m/1609.344*((b-a)/Math.max(1,g.end-g.start)),src:"gps"};
+  const oa=odoInterp(a,g), ob=odoInterp(b,g);
+  if(oa!==null&&ob!==null&&ob>=oa) return {v:ob-oa,src:"odometer"};
+  const ga=gpsAt(g,a), gb=gpsAt(g,b);
+  if(ga!==null&&gb!==null&&gb>=ga) return {v:(gb-ga)/1609.344,src:"gps"};
+  if(g.m) return {v:g.m/1609.344*((b-a)/Math.max(1,g.end-g.start)),src:"gps"};   // entries recorded before 0.9.3
   return null;
 }
 function paySum(pieces){
