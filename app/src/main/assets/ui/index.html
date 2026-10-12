@@ -112,10 +112,18 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <h2>Dispatch texts</h2>
       <div class="hint">Calls from your dispatch texts appear here automatically. Only texts in the dispatch format are read; everything else is ignored.</div>
       <div class="row"><button class="btn sec" id="scanBtn">Check last 7 days</button><button class="btn sec" id="selNew">Select new</button></div>
+      <button class="btn sec" id="importAll">Import past dispatch texts</button>
+      <div class="hint" id="importHint" style="margin-top:4px"></div>
       <button class="btn" id="sendBtn">Send to Route Planner</button>
       <div class="hint" id="sendHint" style="margin-top:6px"></div>
     </div>
     <div class="card" id="list"></div>
+    <div class="card" id="pastCard" hidden>
+      <h2>Past calls <span class="hint" id="pastCount"></span></h2>
+      <div class="hint">Calls from dispatch texts older than 14 days. Search by store, city, order number, or words in the description.</div>
+      <input type="text" id="pastQ" placeholder="Search past calls" style="width:100%;box-sizing:border-box;margin-top:8px">
+      <div id="pastList"></div>
+    </div>
   </section>
 
   <!-- TIMER -->
@@ -307,15 +315,19 @@ function render(){
 
   // texts
   const ds=S.dispatches||[];
-  const fresh=ds.filter(d=>d.receivedAt>lastSeen&&!d.sent).length;
+  const fresh=ds.filter(d=>d.receivedAt>lastSeen&&d.receivedAt>=Date.now()-14*864e5&&!d.sent).length;
   $("newDot").hidden=!fresh; $("newDot").textContent=fresh;
-  $("list").innerHTML = ds.length ? ds.map(d=>{ const si=store(d.store);
+  const cutoff=Date.now()-14*864e5, recent=ds.filter(d=>d.receivedAt>=cutoff), past=ds.filter(d=>d.receivedAt<cutoff);
+  $("importHint").textContent = S.importedAll ? `Past texts last imported ${when(S.importedAll)}. ${ds.length} call${ds.length===1?"":"s"} saved on this phone.` : "Reads every dispatch text already on this phone, so your past calls show up here.";
+  $("pastCard").hidden=!past.length; $("pastCount").textContent=past.length?`(${past.length})`:"";
+  renderPast(past);
+  $("list").innerHTML = recent.length ? recent.map(d=>{ const si=store(d.store);
     return `<div class="item"><input type="checkbox" data-o="${esc(d.order)}" ${picked.has(d.order)?"checked":""} aria-label="Select ${esc(d.order)}">
       <div class="d"><b>${esc(d.description)}</b>
         <div class="meta">Store ${esc(d.store)}${si.city?" – "+esc(si.city):""} · #${esc(d.order)}</div>
         <div class="meta"><span class="pri s${d.severity}">Sev ${d.severity}</span> ${when(d.receivedAt)} ${d.sent?'<span class="tag">Sent ✓</span>':'<span class="tag new">New</span>'}</div></div>
       <button class="x" data-del="${esc(d.order)}" aria-label="Remove">×</button></div>`; }).join("")
-    : `<div class="empty">No dispatch texts yet. New ones show up here as they arrive.</div>`;
+    : `<div class="empty">${past.length?"No dispatch texts in the last 14 days.":"No dispatch texts yet. New ones show up here as they arrive."}</div>`;
   $("list").querySelectorAll("input[data-o]").forEach(cb=>cb.onchange=()=>{ cb.checked?picked.add(cb.dataset.o):picked.delete(cb.dataset.o); sendHint(); });
   $("list").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ A.remove(b.dataset.del); picked.delete(b.dataset.del); refresh(); });
   sendHint();
@@ -367,7 +379,33 @@ function driveMiles(segs){ let m=0, any=false; segs.filter(g=>g.type==="DRIVE").
 function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="HOME") return "At home"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return g.tag==="FUEL"?"Fuel stop":"Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
-$("selNew").onclick=()=>{ (S.dispatches||[]).filter(d=>!d.sent).forEach(d=>picked.add(d.order)); render(); };
+function renderPast(past){
+  const q=($("pastQ").value||"").trim().toLowerCase();
+  const words=q.split(/\s+/).filter(Boolean);
+  const hit=words.length?past.filter(d=>{ const si=store(d.store), t=[d.store,"p"+d.store,si.city,d.order,d.description].join(" ").toLowerCase(); return words.every(w=>t.includes(w)); }):past;
+  const shown=hit.slice(0,100);
+  $("pastList").innerHTML = shown.length ? shown.map(d=>{ const si=store(d.store);
+    return `<div class="item"><input type="checkbox" data-o="${esc(d.order)}" ${picked.has(d.order)?"checked":""} aria-label="Select ${esc(d.order)}">
+      <div class="d"><b>${esc(d.description)}</b>
+        <div class="meta">Store ${esc(d.store)}${si.city?" – "+esc(si.city):""} · #${esc(d.order)} · <span class="pri s${d.severity}">Sev ${d.severity}</span></div>
+        <div class="meta">${new Date(d.receivedAt).toLocaleDateString(undefined,{year:"numeric",month:"numeric",day:"numeric"})} ${tm(d.receivedAt)}${d.sent?' <span class="tag">Sent ✓</span>':""}</div></div></div>`; }).join("")
+    + (hit.length>shown.length?`<div class="empty">Showing ${shown.length} of ${hit.length}. Search to narrow it down.</div>`:"")
+    : `<div class="empty">No past calls match “${esc(q)}”.</div>`;
+  $("pastList").querySelectorAll("input[data-o]").forEach(cb=>cb.onchange=()=>{ cb.checked?picked.add(cb.dataset.o):picked.delete(cb.dataset.o); sendHint(); });
+}
+$("pastQ").oninput=()=>{ const cutoff=Date.now()-14*864e5; renderPast((S.dispatches||[]).filter(d=>d.receivedAt<cutoff)); };
+$("importAll").onclick=()=>{
+  if(!(S.perm||{}).sms){ A.askSms(); return; }
+  if(!confirm("Read every dispatch text already on this phone? Only texts in the dispatch format are kept, and nothing leaves your phone.")) return;
+  $("importAll").disabled=true; $("importAll").textContent="Importing… this can take a moment"; A.importAll();
+};
+window.onImportAll=(n,total)=>{
+  $("importAll").disabled=false; $("importAll").textContent="Import past dispatch texts";
+  if(n===-1){ A.askSms(); return; }
+  if(n<0){ toast("Couldn't read your texts. Try again."); return; }
+  toast(n?`Imported ${n} past call${n>1?"s":""}. ${total} saved in all.`:`No new past calls found. ${total} already saved.`); refresh();
+};
+$("selNew").onclick=()=>{ const cutoff=Date.now()-14*864e5; (S.dispatches||[]).filter(d=>!d.sent&&d.receivedAt>=cutoff).forEach(d=>picked.add(d.order)); render(); };
 $("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } track("send-calls"); A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };
 $("scanBtn").onclick=()=>{ const n=A.scan(); if(n<0){ A.askSms(); return; } toast(n?`Found ${n} new call${n>1?"s":""}.`:"No new dispatch texts in the last 7 days."); refresh(); };
 $("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")){ track("day-end"); A.endDay(); } } else { track("day-start"); A.startDay(); } };
@@ -538,7 +576,8 @@ function renderUsage(){
     [dm!==null?fmtMi(dm):"—","miles by odometer"],[Object.keys(stores).length,"stores visited"],
     [top?top[0]:"—",top?`most-visited store (${top[1]} visits)`:"most-visited store"],
     [longest?fh(longest[1].h):"—",longest?"hours on your longest day":"longest day"],
-    [earliest?tm(earliest):"—","your earliest start"],[ds.length,"dispatch texts received"],[ds.filter(d=>d.sent).length,"calls sent to Route Planner"]];
+    [earliest?tm(earliest):"—","your earliest start"],[ds.length,"calls from dispatch texts"+(ds.length?` since ${new Date(Math.min(...ds.map(d=>d.receivedAt))).toLocaleDateString()}`:"")],
+    ...(()=>{ const m={}; ds.forEach(d=>m[d.store]=(m[d.store]||0)+1); const t=Object.entries(m).sort((a,b)=>b[1]-a[1])[0]; return t?[[t[0],`most-dispatched store (${t[1]} calls)`]]:[]; })(),[ds.filter(d=>d.sent).length,"calls sent to Route Planner"]];
   $("facts").innerHTML=facts.map(([n,l])=>`<div><b>${esc(String(n))}</b><span>${esc(l)}</span></div>`).join("");
 }
 // ---- feedback (same form as Route Planner; Outlook only) ----

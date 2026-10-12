@@ -106,15 +106,16 @@ class MainActivity : Activity() {
         catch (e: Exception) { Toast.makeText(this, "No app can open that link.", Toast.LENGTH_SHORT).show() }
     }
 
-    /** Looks through recent texts (last [days] days) for dispatches. Returns how many new ones were added. */
+    /** Looks through texts from the last [days] days (0 = every text on the phone) for dispatches. Returns how many new ones were added. */
     private fun scanInbox(days: Int): Int {
         if (!granted(Manifest.permission.READ_SMS)) return -1
-        val since = System.currentTimeMillis() - days * 86_400_000L
+        val since = if (days <= 0) 0L else System.currentTimeMillis() - days * 86_400_000L
         val found = ArrayList<JSONObject>()
         val filter = Store.get(this, "senderFilter", "").trim()
         contentResolver.query(Telephony.Sms.Inbox.CONTENT_URI,
             arrayOf(Telephony.Sms.BODY, Telephony.Sms.ADDRESS, Telephony.Sms.DATE),
-            "${Telephony.Sms.DATE} > ?", arrayOf(since.toString()), "${Telephony.Sms.DATE} DESC")?.use { c ->
+            // Only texts that mention "Sev" can be dispatches, so the phone skips the rest quickly.
+            "${Telephony.Sms.DATE} > ? AND ${Telephony.Sms.BODY} LIKE ?", arrayOf(since.toString(), "%Sev%"), "${Telephony.Sms.DATE} DESC")?.use { c ->
             while (c.moveToNext()) {
                 val sender = c.getString(1) ?: ""
                 if (filter.isNotEmpty() && !sender.contains(filter, ignoreCase = true)) continue
@@ -141,6 +142,7 @@ class MainActivity : Activity() {
                     .put("location", granted(Manifest.permission.ACCESS_FINE_LOCATION))
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
                     .put("sdk", Build.VERSION.SDK_INT))
+                .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("odo", Obd.log(c))
                 .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
                     .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
@@ -178,6 +180,17 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun scan(): Int = scanInbox(7)
+
+        /** Reads every dispatch text on the phone (in the background). Calls onImportAll(newCount, total). */
+        @JavascriptInterface fun importAll() {
+            if (!granted(Manifest.permission.READ_SMS)) { askSms(); return }
+            Thread {
+                val n = try { scanInbox(0) } catch (e: Exception) { -2 }
+                val total = Store.dispatches(this@MainActivity).length()
+                Store.put(this@MainActivity, "importedAll", System.currentTimeMillis().toString())
+                runOnUiThread { web.evaluateJavascript("onImportAll($n,$total)", null) }
+            }.start()
+        }
 
         // ---- OBD adapter (odometer) ----
         @JavascriptInterface fun askBluetooth() = runOnUiThread {

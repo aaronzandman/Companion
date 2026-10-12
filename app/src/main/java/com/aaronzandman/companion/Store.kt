@@ -24,9 +24,11 @@ object Store {
         for (i in 0 until cur.length()) have.add(cur.getJSONObject(i).optString("order"))
         val fresh = found.filter { have.add(it.optString("order")) }
         if (fresh.isEmpty()) return 0
+        // Keep everything newest first (past imports can be older than what's already here); up to 5,000 calls.
+        val all = ArrayList<JSONObject>(fresh)
+        for (i in 0 until cur.length()) all.add(cur.getJSONObject(i))
         val out = JSONArray()
-        fresh.sortedByDescending { it.optLong("receivedAt") }.forEach { out.put(it) }
-        for (i in 0 until minOf(cur.length(), 500)) out.put(cur.getJSONObject(i))
+        all.sortedByDescending { it.optLong("receivedAt") }.take(5000).forEach { out.put(it) }
         put(c, "dispatches", out.toString())
         return fresh.size
       }
