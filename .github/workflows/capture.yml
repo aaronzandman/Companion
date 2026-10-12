@@ -1,0 +1,61 @@
+name: Build Portal Capture
+
+on:
+  push:
+    branches: [main]
+    paths: ["capture/**", ".github/workflows/capture.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: capture
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -o pipefail -e {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then echo "$KEYSTORE_B64" | base64 -d > app/release.jks; fi
+      - name: Build the app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: gradle :capture:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: Rename
+        id: v
+        run: |
+          cp capture/build/outputs/apk/release/capture-release.apk PortalCapture.apk
+          echo "ver=$(grep -oP 'appVersion = "\K[0-9.]+' capture/build.gradle.kts).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Publish release (kept separate from Companion's "latest")
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: capture-v${{ steps.v.outputs.ver }}
+          name: Portal Capture ${{ steps.v.outputs.ver }}
+          body: |
+            Portal Capture records how a web form is laid out (labels, field types, buttons) to set up mileage auto-fill.
+            It never reads what you type and sends nothing anywhere. Install: download PortalCapture.apk on your Android phone and open it.
+          files: PortalCapture.apk
+          make_latest: false
+      - name: Save the build log for review (only if the build failed)
+        if: failure()
+        run: |
+          mkdir -p /tmp/log && cp build.log /tmp/log/ 2>/dev/null || echo "no build.log" > /tmp/log/build.log
+          cd /tmp/log && git init -q && git checkout -q -b build-log-capture && git add . \
+            && git -c user.name=companion-ci -c user.email=ci@users.noreply.github.com commit -qm "capture build log ${{ github.run_number }}" \
+            && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" build-log-capture

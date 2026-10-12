@@ -3,6 +3,7 @@ name: Build Companion
 on:
   push:
     branches: [main]
+    paths-ignore: ["capture/**", ".github/workflows/capture.yml"]
   workflow_dispatch:
 
 permissions:
@@ -50,7 +51,7 @@ jobs:
       - name: Build the app
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+        run: gradle :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Rename
         id: v
