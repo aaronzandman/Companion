@@ -147,8 +147,11 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let S={dispatches:[],today:[],tracker:{},perm:{},settings:{}}, picked=new Set(), lastSeen=+(localStorage.getItem("seen")||0);
 const info={};
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2400); }
-// Time is shown in decimal hours: 15 min = 0.25, 1 hr 18 min = 1.30.
-function hm(ms){ return (Math.max(0,ms)/36e5).toFixed(2); }
+// Time is shown in decimal hours, always rounded UP to the next hundredth (0.01 hr = 36 seconds):
+// 15 min = 0.25, 16 min = 0.27, 1 min = 0.02. Totals add up the rounded entries, so they match the list.
+const hu=ms=>Math.ceil(Math.max(0,ms)/36000);          // whole hundredths of an hour, rounded up
+const fh=h=>(h/100).toFixed(2);
+function hm(ms){ return fh(hu(ms)); }
 function tm(t){ return new Date(t).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}); }
 function when(t){ const d=new Date(t), today=new Date().toDateString()===d.toDateString(); return (today?"Today ":d.toLocaleDateString(undefined,{month:"numeric",day:"numeric"})+" ")+tm(t); }
 function store(n){ if(!(n in info)){ try{ info[n]=JSON.parse(A.storeInfo(n)); }catch(e){ info[n]={}; } } return info[n]; }
@@ -199,9 +202,9 @@ function render(){
   $("dayBtn").textContent=running?"End my day":"Start my day"; $("dayBtn").className="btn"+(running?" red":"");
   $("status").innerHTML = running ? `${label(cur)}<small>since ${tm(cur.start)} · day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
   const tot={DRIVE:0,STORE:0,STOP:0};
-  (S.today||[]).forEach(g=>tot[g.type]=(tot[g.type]||0)+(g.end-g.start));
+  (S.today||[]).forEach(g=>tot[g.type]=(tot[g.type]||0)+hu(g.end-g.start));
   const dm=driveMiles(S.today||[]); $("tMiWrap").hidden=dm===null; if(dm!==null) $("tMi").textContent=fmtMi(dm);
-  $("tDrive").textContent=hm(tot.DRIVE); $("tStore").textContent=hm(tot.STORE); $("tStop").textContent=hm(tot.STOP);
+  $("tDrive").textContent=fh(tot.DRIVE); $("tStore").textContent=fh(tot.STORE); $("tStop").textContent=fh(tot.STOP);
   const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
   $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
@@ -235,8 +238,8 @@ $("scanBtn").onclick=()=>{ const n=A.scan(); if(n<0){ A.askSms(); return; } toas
 $("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")) A.endDay(); } else A.startDay(); };
 $("copyDay").onclick=()=>{
   const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
-  const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=g.end-g.start);
-  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${hm(tot.DRIVE)} hrs · At stores ${hm(tot.STORE)} hrs · Other stops ${hm(tot.STOP)} hrs · Total ${hm(tot.DRIVE+tot.STORE+tot.STOP)} hrs\n`;
+  const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=hu(g.end-g.start));
+  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs · Total ${fh(tot.DRIVE+tot.STORE+tot.STOP)} hrs\n`;
   const dmc=driveMiles(segs); if(dmc!==null) t+=`Miles by odometer: ${fmtMi(dmc)}\n`;
   segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)} hrs)`;
     const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
