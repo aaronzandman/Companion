@@ -333,7 +333,7 @@ class MainActivity : Activity() {
             "Timer: ${if (trk.optBoolean("running")) "running since ${fmt.format(java.util.Date(trk.optLong("dayStart")))}" else "not running"}",
             "Data (counts only): ${Store.dispatches(c).length()} dispatch texts, ${Store.segments(c).length()} time entries, ${Stores.all(c).size} stores loaded",
             "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", "250")} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
-            "OBD adapter: ${if (Obd.enabled(c)) "chosen (${Store.get(c, "obdName", "unnamed").take(40)}, ${obdType})" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
+            "OBD adapter: ${if (Obd.enabled(c)) "set up (${obdType} Bluetooth)" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
             "Last crash: ${Store.get(c, "lastCrash", "none")}"
         )
         return lines.joinToString("\n")

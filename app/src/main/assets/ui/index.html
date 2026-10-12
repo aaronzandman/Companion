@@ -77,6 +77,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .ack input{width:22px;height:22px;flex:none;accent-color:var(--road)}
 .devd{margin:6px 0 0 30px;font-size:13px}.devd summary{color:var(--road);font-weight:600}
 .devd pre{white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.45 ui-monospace,monospace;margin:6px 0 0}
+.ul{margin:6px 0;padding-left:20px;font-size:13px}.ul li{margin:3px 0}
+#usageCard details summary{color:var(--road);font-weight:600;margin-top:8px}
+#facts span{display:block}
 .err{color:var(--red);font-size:14px;min-height:1.2em;margin-top:8px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:999px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
@@ -161,6 +164,29 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <pre id="obdLog" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
     </div>
     <div class="card">
+      <h2>Your stats</h2>
+      <div class="hint">From your own data on this phone (last 60 days). Not sent anywhere.</div>
+      <div class="tot" id="facts"></div>
+    </div>
+    <div class="card" id="usageCard">
+      <h2>Usage data</h2>
+      <p class="hint" style="margin:0 0 6px">To see how many people use Companion, on what phones and in which areas, the app sends a small anonymous count when you open it (once a day) and when you use certain features. It's always on, and everything it sends is listed here.</p>
+      <details><summary>What's sent</summary><ul class="ul">
+        <li>App and version, and which Route Planner you picked (for example <i id="usageEd"></i>)</li>
+        <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent feedback</li>
+        <li>Screen size, plus phone type and Android version (read from the app's built-in browser)</li>
+        <li>General area (country and state), worked out by the counting service from your internet address. The address itself isn't stored.</li>
+      </ul></details>
+      <details><summary>What's never sent</summary><ul class="ul">
+        <li>Your texts, dispatch calls, order numbers, or store numbers</li>
+        <li>Your GPS location, routes, times, hours, or odometer readings</li>
+        <li>Your name, P number, email, or anything you type</li>
+        <li>Phone numbers, contacts, or any ID that identifies you or this phone</li>
+      </ul></details>
+      <details><summary>Where it goes</summary><p class="hint">Counts go to <b>GoatCounter</b>, a privacy-focused counting service, the same one Route Planner uses. Like any website, it sees your internet address while receiving a count; it uses it only to work out country and state and to avoid double counting for a few hours, and never saves it. No personally identifiable information is collected. Only the app's owner sees the totals, and only as counts. Counts are only sent when you're online.</p></details>
+      <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
+    </div>
+    <div class="card">
       <h2>About</h2>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
@@ -221,11 +247,12 @@ function showTab(t){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
   document.querySelectorAll("section").forEach(s=>s.classList.toggle("on",s.id===t));
   if(t==="texts"){ lastSeen=Date.now(); localStorage.setItem("seen",lastSeen); }
+  if(t==="settings") setTimeout(renderUsage,0);
   render();
 }
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
-function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); }
+function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dailyUsage(); }catch(e){} }
 
 function render(){
   const p=S.perm||{};
@@ -297,9 +324,9 @@ function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="STORE"){ 
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
 $("selNew").onclick=()=>{ (S.dispatches||[]).filter(d=>!d.sent).forEach(d=>picked.add(d.order)); render(); };
-$("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };
+$("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } track("send-calls"); A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };
 $("scanBtn").onclick=()=>{ const n=A.scan(); if(n<0){ A.askSms(); return; } toast(n?`Found ${n} new call${n>1?"s":""}.`:"No new dispatch texts in the last 7 days."); refresh(); };
-$("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")) A.endDay(); } else A.startDay(); };
+$("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")){ track("day-end"); A.endDay(); } } else { track("day-start"); A.startDay(); } };
 // ---- day log: shared by Copy, Email and the end-of-day email ----
 const dayName=d=>d.toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric",year:"numeric"});
 const dayKey=t=>{ const d=new Date(t); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
@@ -336,7 +363,7 @@ function emailSegs(segs,title,key){
   const tot=totals(segs);
   const subject=`Time log – ${title} – ${fh(tot.ALL)} hrs`;
   const body=dayText(segs,title)+"\n\nHours are rounded up to the next hundredth (0.01 hr = 36 sec). Spreadsheet attached.\nSent from Companion "+(S.version||"");
-  A.emailDay(to,subject,body,`Companion-time-${key}.csv`,dayCsv(segs));
+  A.emailDay(to,subject,body,`Companion-time-${key}.csv`,dayCsv(segs)); track("email-day");
 }
 window.onEmail=r=>{ if(r==="noOutlook"){ if(confirm("Outlook isn't installed on this phone. Your time log is only sent through Outlook. Open the Play Store to install it?")) A.open("market://details?id=com.microsoft.office.outlook"); } else if(r==="error") toast("Couldn't open Outlook."); };
 // Called by the app right after End my day, with the day's start and end times.
@@ -369,6 +396,40 @@ $("radius").onchange=e=>A.setSetting("radius",e.target.value);
 $("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
 $("sender").onchange=e=>A.setSetting("senderFilter",e.target.value.trim());
 $("appSet").onclick=()=>A.openAppSettings();
+// ---- usage counts (anonymous; same service and fields as Route Planner) and Your stats ----
+const GC_CODE=(c=>c.includes("@@")?"":c)("@@GC_CODE@@");
+const ls={ get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+function track(ev){
+  const ed=(S.settings||{}).edition||"VA", ver=String(S.version||"").split(".").slice(0,3).join(".");
+  const name=`companion/${ed}/${ev}`, send=!!GC_CODE && navigator.onLine;
+  if(send){ try{ const img=new Image(); img.referrerPolicy="no-referrer";
+    img.src=`https://${GC_CODE}.goatcounter.com/count?p=${encodeURIComponent(name)}&t=${encodeURIComponent("Companion "+ver)}&e=1&s=${screen.width},${screen.height},${devicePixelRatio}&rnd=${Math.random().toString(36).slice(2)}`; }catch(e){} }
+  const log=ls.get("sentLog",[]); log.push({t:Date.now(),e:name,v:ver,s:send?1:0}); while(log.length>20) log.shift(); ls.set("sentLog",log);
+}
+function dailyUsage(){
+  const today=new Date().toDateString();
+  if(!ls.get("firstRunSent",false)){ ls.set("firstRunSent",true); track("first-run"); }
+  if(ls.get("dailySent","")!==today){ ls.set("dailySent",today); track("daily"); }
+}
+function renderUsage(){
+  const ed=(S.settings||{}).edition||"VA";
+  $("usageEd").textContent=`Companion ${String(S.version||"").split(".").slice(0,3).join(".")}, ${ed} planner`;
+  const log=ls.get("sentLog",[]).slice().reverse();
+  $("sentLog").innerHTML = log.length ? log.map(x=>`${esc(new Date(x.t).toLocaleString())} – <b>${esc(x.e.split("/").pop())}</b> (${esc(x.e.split("/")[1])} planner, v${esc(x.v)}, screen ${screen.width}×${screen.height})${x.s?"":" – not sent: offline or counting not set up yet"}`).join("<br>") : "Nothing yet.";
+  const segs=(S.segments||[]), days={}, stores={};
+  segs.forEach(g=>{ const k=dayKey(g.start); (days[k]=days[k]||{h:0,first:g.start}); days[k].h+=hu(g.end-g.start); days[k].first=Math.min(days[k].first,g.start);
+    if(g.type==="STORE"&&g.store) stores[g.store]=(stores[g.store]||0)+1; });
+  const tot=totals(segs), dm=driveMiles(segs), dl=Object.entries(days);
+  const longest=dl.sort((a,b)=>b[1].h-a[1].h)[0], top=Object.entries(stores).sort((a,b)=>b[1]-a[1])[0];
+  const earliest=dl.map(([,v])=>new Date(v.first)).sort((a,b)=>(a.getHours()*60+a.getMinutes())-(b.getHours()*60+b.getMinutes()))[0];
+  const ds=S.dispatches||[];
+  const facts=[[dl.length,"days tracked"],[fh(tot.DRIVE),"hours driving"],[fh(tot.STORE),"hours at stores"],
+    [dm!==null?fmtMi(dm):"—","miles by odometer"],[Object.keys(stores).length,"stores visited"],
+    [top?top[0]:"—",top?`most-visited store (${top[1]} visits)`:"most-visited store"],
+    [longest?fh(longest[1].h):"—",longest?"hours on your longest day":"longest day"],
+    [earliest?tm(earliest):"—","your earliest start"],[ds.length,"dispatch texts received"],[ds.filter(d=>d.sent).length,"calls sent to Route Planner"]];
+  $("facts").innerHTML=facts.map(([n,l])=>`<div><b>${esc(String(n))}</b><span>${esc(l)}</span></div>`).join("");
+}
 // ---- feedback (same form as Route Planner; Outlook only) ----
 function devDetails(){
   let t=""; try{ t=A.deviceDetails(); }catch(e){ t="App details unavailable"; }
@@ -394,7 +455,7 @@ $("fbForm").onsubmit=e=>{
     `Type: ${type}`,`Name: ${name}`,`P Number: P${pn}`,"",msg,"","---",`App: Companion ${S.version||""}`,`Sent: ${new Date().toLocaleString()}`,
     `Proprietary information: ${prop?"YES – flagged by sender":"No"}`,
     ...($("fbDevOn").checked?["","Device details (included with the sender's permission):",devDetails()]:["","Device details: not included (sender unchecked it)"])].join("\n");
-  A.feedback(subject,body); $("fbMsg").value=""; $("fbDlg").hidden=true; toast("Feedback ready in Outlook. Tap Send there.");
+  A.feedback(subject,body); track("feedback"); $("fbMsg").value=""; $("fbDlg").hidden=true; toast("Feedback ready in Outlook. Tap Send there.");
 };
 function devRows(list,kind){ return list.map(d=>`<div class="dev"><span><b>${esc(d.name)}</b><br><span class="hint">${kind==="ble"?"Bluetooth LE":"Paired"} · ${esc(d.addr)}</span></span><button class="btn" style="width:auto;margin:0" data-addr="${esc(d.addr)}" data-name="${esc(d.name)}" data-kind="${kind}">Use</button></div>`).join(""); }
 function wireDevs(){ $("obdList").querySelectorAll("[data-addr]").forEach(b=>b.onclick=()=>{ A.setObd(b.dataset.addr,b.dataset.name,b.dataset.kind==="ble"?"ble":"auto"); $("obdList").innerHTML=""; toast("Adapter saved. Tap Test reading."); refresh(); }); }
