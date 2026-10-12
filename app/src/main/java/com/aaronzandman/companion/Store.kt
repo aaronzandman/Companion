@@ -11,6 +11,8 @@ object Store {
 
     fun get(c: Context, key: String, def: String): String = prefs(c).getString(key, def) ?: def
     fun put(c: Context, key: String, value: String) { prefs(c).edit().putString(key, value).apply() }
+    /** Saves immediately (used while the app is crashing, when apply() might not finish). */
+    fun putNow(c: Context, key: String, value: String) { prefs(c).edit().putString(key, value).commit() }
 
     fun dispatches(c: Context): JSONArray = JSONArray(get(c, "dispatches", "[]"))
 

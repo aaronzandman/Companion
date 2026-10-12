@@ -36,6 +36,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Notify.channels(this)
+        // Remember the last crash (type, message, where) so it can be included in feedback if the user chooses.
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                val at = e.stackTrace.firstOrNull { it.className.startsWith("com.aaronzandman") } ?: e.stackTrace.firstOrNull()
+                Store.putNow(this, "lastCrash", "${java.text.DateFormat.getDateTimeInstance().format(java.util.Date())} – ${e.javaClass.simpleName}: ${(e.message ?: "").take(120)}${at?.let { " at ${it.fileName}:${it.lineNumber}" } ?: ""}")
+            } catch (_: Exception) {}
+            prev?.uncaughtException(t, e)
+        }
         web = WebView(this)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
@@ -212,31 +221,24 @@ class MainActivity : Activity() {
             web.evaluateJavascript("refresh();window.onDayEnded&&onDayEnded($start,$end)", null)
         }
 
+        /** Opens Outlook with a feedback report to the app's owner. The user sees everything and taps Send. */
+        @JavascriptInterface fun feedback(subject: String, body: String) = runOnUiThread {
+            outlook(FEEDBACK_TO, subject, body, null)
+        }
+
+        /** Troubleshooting details. Shown in full on the feedback form before anything is sent. */
+        @JavascriptInterface fun deviceDetails(): String = details()
+
         /** Opens Outlook (and only Outlook) with the time log filled in and a .csv attached. The user taps Send. */
         @JavascriptInterface fun emailDay(to: String, subject: String, body: String, fileName: String, csv: String) = runOnUiThread {
             val addr = to.trim()
             if (!EMAIL.matches(addr)) { web.evaluateJavascript("onEmail('error')", null); return@runOnUiThread }
-            try {
+            val f = try {
                 val dir = File(cacheDir, "exports").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
                 val safe = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifEmpty { "Companion-time.csv" }
-                val f = File(dir, safe); f.writeText(csv)
-                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", f)
-                val i = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/csv"
-                    setPackage(OUTLOOK)
-                    putExtra(Intent.EXTRA_EMAIL, arrayOf(addr))
-                    putExtra(Intent.EXTRA_SUBJECT, subject)
-                    putExtra(Intent.EXTRA_TEXT, body)
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    clipData = ClipData.newRawUri(safe, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(i)
-            } catch (e: android.content.ActivityNotFoundException) {
-                web.evaluateJavascript("onEmail('noOutlook')", null)
-            } catch (e: Exception) {
-                web.evaluateJavascript("onEmail('error')", null)
-            }
+                File(dir, safe).apply { writeText(csv) }
+            } catch (e: Exception) { null }
+            outlook(addr, subject, body, f)
         }
 
         @JavascriptInterface fun deleteSegment(start: String) { Tracker.deleteSegment(this@MainActivity, start.toLong()) }
@@ -284,6 +286,59 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The one way Companion sends email: Outlook, with everything filled in. Nothing is sent until the user taps Send. */
+    private fun outlook(to: String, subject: String, body: String, attach: File?) {
+        try {
+            val i = Intent(Intent.ACTION_SEND).apply {
+                setPackage(OUTLOOK)
+                putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                putExtra(Intent.EXTRA_TEXT, body)
+                if (attach != null) {
+                    type = "text/csv"
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", attach)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newRawUri(attach.name, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } else type = "text/plain"
+            }
+            startActivity(i)
+        } catch (e: android.content.ActivityNotFoundException) {
+            web.evaluateJavascript("onEmail('noOutlook')", null)
+        } catch (e: Exception) {
+            web.evaluateJavascript("onEmail('error')", null)
+        }
+    }
+
+    /** Device and app facts that help troubleshoot. No calls, texts, locations, odometer values, contacts, or device IDs. */
+    @SuppressLint("MissingPermission")
+    private fun details(): String {
+        val c = this
+        fun yn(b: Boolean) = if (b) "allowed" else "NOT allowed"
+        val pm = getSystemService(android.os.PowerManager::class.java)
+        val lm = getSystemService(android.location.LocationManager::class.java)
+        val bt = try { getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled } catch (_: Exception) { null }
+        val wv = try { WebView.getCurrentWebViewPackage()?.versionName } catch (_: Exception) { null } ?: "unknown"
+        val trk = Tracker.state(c)
+        val odoLast = try { JSONObject(Store.get(c, "odoLast", "{}")).optLong("t", 0L) } catch (_: Exception) { 0L }
+        val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+        val obdType = Store.get(c, "obdType", "auto")
+        val lines = listOf(
+            "App: Companion ${BuildConfig.VERSION_NAME}",
+            "Phone: ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · WebView $wv",
+            "Language / time zone: ${java.util.Locale.getDefault().toLanguageTag()} / ${java.util.TimeZone.getDefault().id}",
+            "Permissions: texts ${yn(granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.RECEIVE_SMS))} · location ${yn(granted(Manifest.permission.ACCESS_FINE_LOCATION))} · notifications ${yn(Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))} · Bluetooth ${yn(btOk())}",
+            "Battery optimization: ${if (pm?.isIgnoringBatteryOptimizations(packageName) == true) "off for Companion (good)" else "ON – Android may pause the timer in the background"}",
+            "Location services: ${if (Build.VERSION.SDK_INT >= 28) (if (lm?.isLocationEnabled == true) "on" else "OFF") else "unknown"} · Bluetooth: ${when (bt) { true -> "on"; false -> "off"; else -> "unknown" }}",
+            "Timer: ${if (trk.optBoolean("running")) "running since ${fmt.format(java.util.Date(trk.optLong("dayStart")))}" else "not running"}",
+            "Data (counts only): ${Store.dispatches(c).length()} dispatch texts, ${Store.segments(c).length()} time entries, ${Stores.all(c).size} stores loaded",
+            "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", "250")} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
+            "OBD adapter: ${if (Obd.enabled(c)) "chosen (${Store.get(c, "obdName", "unnamed").take(40)}, ${obdType})" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
+            "Last crash: ${Store.get(c, "lastCrash", "none")}"
+        )
+        return lines.joinToString("\n")
+    }
+
     companion object {
         const val REQ_SMS = 10
         const val REQ_LOC = 11
@@ -291,6 +346,7 @@ class MainActivity : Activity() {
         const val REQ_BT = 13
         const val SITE = "https://aaronzandman.github.io/Route2/"
         const val OUTLOOK = "com.microsoft.office.outlook"
+        const val FEEDBACK_TO = "Aaron.zandman@publix.com"
         /** Only Publix work addresses are accepted. */
         val EMAIL = Regex("^[A-Za-z0-9._%+'-]+@publix\\.com$", RegexOption.IGNORE_CASE)
         const val DOWNLOAD = "https://github.com/AaronZandman/Companion/releases/latest/download/Companion.apk"
