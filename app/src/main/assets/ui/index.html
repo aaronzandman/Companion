@@ -100,9 +100,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
       <div class="tot" id="totRow">
         <div id="tMiWrap" hidden><b id="tMi">0</b><span>Miles (odometer)</span></div>
-        <div><b id="tDrive">0:00</b><span>Driving</span></div>
-        <div><b id="tStore">0:00</b><span>At stores</span></div>
-        <div><b id="tStop">0:00</b><span>Other stops</span></div>
+        <div><b id="tDrive">0.00</b><span>Driving (hrs)</span></div>
+        <div><b id="tStore">0.00</b><span>At stores (hrs)</span></div>
+        <div><b id="tStop">0.00</b><span>Other stops (hrs)</span></div>
       </div>
     </div>
     <div class="card">
@@ -147,7 +147,8 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 let S={dispatches:[],today:[],tracker:{},perm:{},settings:{}}, picked=new Set(), lastSeen=+(localStorage.getItem("seen")||0);
 const info={};
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2400); }
-function hm(ms){ const m=Math.max(0,Math.round(ms/60000)); return Math.floor(m/60)+":"+String(m%60).padStart(2,"0"); }
+// Time is shown in decimal hours: 15 min = 0.25, 1 hr 18 min = 1.30.
+function hm(ms){ return (Math.max(0,ms)/36e5).toFixed(2); }
 function tm(t){ return new Date(t).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}); }
 function when(t){ const d=new Date(t), today=new Date().toDateString()===d.toDateString(); return (today?"Today ":d.toLocaleDateString(undefined,{month:"numeric",day:"numeric"})+" ")+tm(t); }
 function store(n){ if(!(n in info)){ try{ info[n]=JSON.parse(A.storeInfo(n)); }catch(e){ info[n]={}; } } return info[n]; }
@@ -202,7 +203,7 @@ function render(){
   const dm=driveMiles(S.today||[]); $("tMiWrap").hidden=dm===null; if(dm!==null) $("tMi").textContent=fmtMi(dm);
   $("tDrive").textContent=hm(tot.DRIVE); $("tStore").textContent=hm(tot.STORE); $("tStop").textContent=hm(tot.STOP);
   const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
-  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
+  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
@@ -235,9 +236,9 @@ $("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your
 $("copyDay").onclick=()=>{
   const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
   const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=g.end-g.start);
-  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${hm(tot.DRIVE)} · At stores ${hm(tot.STORE)} · Other stops ${hm(tot.STOP)}\n`;
+  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${hm(tot.DRIVE)} hrs · At stores ${hm(tot.STORE)} hrs · Other stops ${hm(tot.STOP)} hrs · Total ${hm(tot.DRIVE+tot.STORE+tot.STOP)} hrs\n`;
   const dmc=driveMiles(segs); if(dmc!==null) t+=`Miles by odometer: ${fmtMi(dmc)}\n`;
-  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)})`;
+  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)} hrs)`;
     const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
     if(g.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)} = ${fmtMi(b.mi-a.mi)} mi`; else if(g.type!=="DRIVE"&&(a||b)) t+=`  odo ${fmtMi((a||b).mi)}`; });
   A.copy(t);
