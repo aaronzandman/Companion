@@ -39,12 +39,20 @@ class TrackerService : Service(), LocationListener {
                     lm?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 30_000L, 0f, this, Looper.getMainLooper())
             } catch (_: SecurityException) { stopEverything() }
         }
+        readOdometer(System.currentTimeMillis())
         return START_STICKY
     }
 
     override fun onLocationChanged(loc: Location) {
         if (loc.provider == LocationManager.NETWORK_PROVIDER && loc.accuracy > 150) return
-        val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val before = Tracker.state(this).optLong("boundary", 0)
+        val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now)
+        val st = Tracker.state(this)
+        // Odometer: read at each possible arrival/departure, and every 2 minutes while driving.
+        val boundary = st.optLong("boundary", 0)
+        if (boundary != before && boundary > 0) readOdometer(boundary)
+        else if (st.optJSONObject("cur")?.optString("type") == "DRIVE" && now - lastOdoTry > 120_000L) readOdometer(now)
         getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, text))
     }
 
@@ -52,6 +60,16 @@ class TrackerService : Service(), LocationListener {
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     override fun onProviderEnabled(provider: String) {}
     override fun onProviderDisabled(provider: String) {}
+
+    @Volatile private var lastOdoTry = 0L
+    private val odoBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun readOdometer(t: Long) {
+        if (!Obd.enabled(this) || !odoBusy.compareAndSet(false, true)) return
+        lastOdoTry = System.currentTimeMillis()
+        Thread {
+            try { Obd.readMiles(this)?.let { Obd.record(this, t, it) } } finally { odoBusy.set(false) }
+        }.start()
+    }
 
     private fun stopEverything() {
         try { lm?.removeUpdates(this) } catch (_: Exception) {}

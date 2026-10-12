@@ -43,7 +43,9 @@ button{font:inherit}
 .x{background:none;border:0;color:var(--muted);font-size:20px;padding:0 4px}
 .status{font:700 26px/1.15 var(--sign)}
 .status small{display:block;font:500 14px system-ui;color:var(--muted);margin-top:4px}
-.tot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.tot{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-top:10px}
+.odo{font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+.dev{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
 .tot div{background:var(--soft);border-radius:10px;padding:10px;text-align:center}
 .tot b{display:block;font:700 20px var(--sign)}
 .tot span{font-size:12px;color:var(--muted)}
@@ -96,7 +98,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="status" id="status">Not tracking</div>
       <button class="btn" id="dayBtn">Start my day</button>
       <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
-      <div class="tot">
+      <div class="tot" id="totRow">
+        <div id="tMiWrap" hidden><b id="tMi">0</b><span>Miles (odometer)</span></div>
         <div><b id="tDrive">0:00</b><span>Driving</span></div>
         <div><b id="tStore">0:00</b><span>At stores</span></div>
         <div><b id="tStop">0:00</b><span>Other stops</span></div>
@@ -118,6 +121,14 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
+    </div>
+    <div class="card">
+      <h2>Vehicle odometer</h2>
+      <div class="hint">Connect your OBD adapter (Vgate vLinker FD+) to log the exact odometer at every stop. Pair it once in Android's Bluetooth settings if it uses regular Bluetooth.</div>
+      <div id="obdNow" style="margin:8px 0;font-weight:600"></div>
+      <div class="row"><button class="btn sec" id="obdPick">Choose adapter</button><button class="btn sec" id="obdTest">Test reading</button></div>
+      <div id="obdList"></div>
+      <pre id="obdLog" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
     </div>
     <div class="card">
       <h2>About</h2>
@@ -188,9 +199,10 @@ function render(){
   $("status").innerHTML = running ? `${label(cur)}<small>since ${tm(cur.start)} · day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
   const tot={DRIVE:0,STORE:0,STOP:0};
   (S.today||[]).forEach(g=>tot[g.type]=(tot[g.type]||0)+(g.end-g.start));
+  const dm=driveMiles(S.today||[]); $("tMiWrap").hidden=dm===null; if(dm!==null) $("tMi").textContent=fmtMi(dm);
   $("tDrive").textContent=hm(tot.DRIVE); $("tStore").textContent=hm(tot.STORE); $("tStop").textContent=hm(tot.STOP);
   const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
-  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)}</div></div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
+  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
@@ -198,8 +210,21 @@ function render(){
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
   $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"250"; $("smsOn").checked=st.smsOn!==false;
+  const ob=S.obd||{}, lastO=(S.odo||[]).slice(-1)[0];
+  $("obdNow").innerHTML = ob.addr ? `Adapter: ${esc(ob.name||ob.addr)}${lastO?` · last reading ${fmtMi(lastO.mi)} mi, ${when(lastO.t)}`:""}` : "No adapter chosen yet.";
+  $("obdTest").disabled=!ob.addr;
   $("about").textContent=`Version ${S.version||"?"} · ${S.stores||0} stores loaded`;
 }
+function odoAt(t){ // reading closest to t, within 4 minutes
+  let best=null, bd=4*60e3; (S.odo||[]).forEach(o=>{ const d=Math.abs(o.t-t); if(d<=bd){ bd=d; best=o; } }); return best; }
+const fmtMi=m=>m.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1});
+function odoLine(g){
+  if(!(S.odo||[]).length) return "";
+  const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
+  if(g.type==="DRIVE"){ if(a&&b&&b.mi>=a.mi) return `<div class="odo">${fmtMi(a.mi)} → ${fmtMi(b.mi)} · <b>${fmtMi(b.mi-a.mi)} mi</b></div>`; if(a) return `<div class="odo">Odometer ${fmtMi(a.mi)} at start</div>`; return ""; }
+  const o=a||b; return o?`<div class="odo">Odometer ${fmtMi(o.mi)}</div>`:"";
+}
+function driveMiles(segs){ let m=0, any=false; segs.filter(g=>g.type==="DRIVE").forEach(g=>{ const a=odoAt(g.start), b=g.live?null:odoAt(g.end); if(a&&b&&b.mi>=a.mi){ m+=b.mi-a.mi; any=true; } }); return any?m:null; }
 function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return "Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
@@ -211,7 +236,10 @@ $("copyDay").onclick=()=>{
   const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
   const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=g.end-g.start);
   let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${hm(tot.DRIVE)} · At stores ${hm(tot.STORE)} · Other stops ${hm(tot.STOP)}\n`;
-  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)})`; });
+  const dmc=driveMiles(segs); if(dmc!==null) t+=`Miles by odometer: ${fmtMi(dmc)}\n`;
+  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)})`;
+    const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
+    if(g.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)} = ${fmtMi(b.mi-a.mi)} mi`; else if(g.type!=="DRIVE"&&(a||b)) t+=`  odo ${fmtMi((a||b).mi)}`; });
   A.copy(t);
 };
 $("edition").onchange=e=>A.setSetting("edition",e.target.value);
@@ -219,6 +247,27 @@ $("radius").onchange=e=>A.setSetting("radius",e.target.value);
 $("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
 $("sender").onchange=e=>A.setSetting("senderFilter",e.target.value.trim());
 $("appSet").onclick=()=>A.openAppSettings();
+function devRows(list,kind){ return list.map(d=>`<div class="dev"><span><b>${esc(d.name)}</b><br><span class="hint">${kind==="ble"?"Bluetooth LE":"Paired"} · ${esc(d.addr)}</span></span><button class="btn" style="width:auto;margin:0" data-addr="${esc(d.addr)}" data-name="${esc(d.name)}" data-kind="${kind}">Use</button></div>`).join(""); }
+function wireDevs(){ $("obdList").querySelectorAll("[data-addr]").forEach(b=>b.onclick=()=>{ A.setObd(b.dataset.addr,b.dataset.name,b.dataset.kind==="ble"?"ble":"auto"); $("obdList").innerHTML=""; toast("Adapter saved. Tap Test reading."); refresh(); }); }
+$("obdPick").onclick=()=>{
+  if(S.obd&&S.obd.perm===false){ A.askBluetooth(); return; }
+  let paired=[]; try{ paired=JSON.parse(A.obdPaired()); }catch(e){}
+  const likely=d=>/vlinker|obd|vgate|elm|v-?link/i.test(d.name);
+  paired.sort((a,b)=>likely(b)-likely(a));
+  $("obdList").innerHTML=(paired.length?`<div class="hint" style="margin-top:8px">Paired devices</div>`+devRows(paired,"paired"):"")+`<div class="hint" id="bleScan" style="margin-top:8px">Looking for Bluetooth LE adapters nearby…</div>`;
+  wireDevs(); A.obdScan();
+};
+function onObdScan(list){
+  const el=$("bleScan"); if(!el) return;
+  const likely=d=>/vlinker|obd|vgate|elm|v-?link/i.test(d.name); list.sort((a,b)=>likely(b)-likely(a));
+  el.outerHTML = list.length ? `<div class="hint" style="margin-top:8px">Bluetooth LE nearby</div>`+devRows(list,"ble") : `<div class="hint" style="margin-top:8px">No Bluetooth LE adapters found. Turn the van on (ignition) and try again.</div>`;
+  wireDevs();
+}
+$("obdTest").onclick=()=>{ $("obdLog").style.display="block"; $("obdLog").textContent="Connecting to the adapter… (the van must be on)"; A.obdTest(); };
+function onObdTest(r){
+  $("obdLog").textContent=(r.ok?`✓ Odometer: ${fmtMi(r.miles)} miles\n\n`:"✗ Couldn't read the odometer. Make sure the van is on and the adapter is plugged in.\n\n")+(r.log||"");
+  refresh();
+}
 let manualUpd=false;
 $("updBtn").onclick=()=>{ manualUpd=true; toast("Checking…"); A.checkUpdate(); };
 function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), y=String(b).split(".").map(Number); for(let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)>(y[i]||0); } return false; }

@@ -79,6 +79,7 @@ object Tracker {
                 }
             } else {
                 s.put("cand", JSONObject().put("type", obsType).put("store", obsStore).put("since", t))
+                s.put("boundary", t)   // something may be changing (slowing down / pulling away): good moment for an odometer reading
             }
         }
         if (!s.has("cur")) s.put("cur", cur)

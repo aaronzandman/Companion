@@ -1,6 +1,9 @@
 package com.aaronzandman.companion
 
 import android.Manifest
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
@@ -63,6 +66,8 @@ class MainActivity : Activity() {
     }
 
     private fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+    private fun btOk() = Build.VERSION.SDK_INT < 31 ||
+        (granted(Manifest.permission.BLUETOOTH_CONNECT) && granted(Manifest.permission.BLUETOOTH_SCAN))
 
     private fun openUrl(u: String) {
         try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }
@@ -103,6 +108,9 @@ class MainActivity : Activity() {
                     .put("location", granted(Manifest.permission.ACCESS_FINE_LOCATION))
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
                     .put("sdk", Build.VERSION.SDK_INT))
+                .put("odo", Obd.log(c))
+                .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
+                    .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
                 .put("settings", JSONObject()
                     .put("edition", Store.get(c, "edition", "VA"))
                     .put("radius", Store.get(c, "radius", "250"))
@@ -134,6 +142,56 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun scan(): Int = scanInbox(7)
+
+        // ---- OBD adapter (odometer) ----
+        @JavascriptInterface fun askBluetooth() = runOnUiThread {
+            if (Build.VERSION.SDK_INT >= 31) requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), REQ_BT)
+        }
+
+        /** Paired Bluetooth devices (the vLinker shows up here once paired in Android Bluetooth settings). */
+        @SuppressLint("MissingPermission")
+        @JavascriptInterface fun obdPaired(): String {
+            if (!btOk()) return "[]"
+            val bt = getSystemService(BluetoothManager::class.java)?.adapter ?: return "[]"
+            val a = JSONArray()
+            try { bt.bondedDevices?.forEach { d -> a.put(JSONObject().put("addr", d.address).put("name", d.name ?: d.address).put("kind", "paired")) } } catch (_: SecurityException) {}
+            return a.toString()
+        }
+
+        /** Looks for Bluetooth LE adapters nearby for about 6 seconds; calls onObdScan(list) in the page. */
+        @SuppressLint("MissingPermission")
+        @JavascriptInterface fun obdScan() {
+            if (!btOk()) { askBluetooth(); return }
+            val scanner = getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner ?: return
+            val found = LinkedHashMap<String, JSONObject>()
+            val cb = object : ScanCallback() {
+                override fun onScanResult(type: Int, r: ScanResult) {
+                    val name = try { r.device.name } catch (_: SecurityException) { null } ?: r.scanRecord?.deviceName ?: return
+                    found[r.device.address] = JSONObject().put("addr", r.device.address).put("name", name).put("kind", "ble")
+                }
+            }
+            try { scanner.startScan(cb) } catch (_: Exception) { return }
+            web.postDelayed({
+                try { scanner.stopScan(cb) } catch (_: Exception) {}
+                web.evaluateJavascript("onObdScan(${JSONArray(found.values.toList())})", null)
+            }, 6000)
+        }
+
+        @JavascriptInterface fun setObd(addr: String, name: String, type: String) {
+            Store.put(this@MainActivity, "obdAddr", addr); Store.put(this@MainActivity, "obdName", name)
+            Store.put(this@MainActivity, "obdType", if (type in setOf("classic", "ble")) type else "auto")
+        }
+
+        /** Connects and reads the odometer once; calls onObdTest(result) with the reading and a short log. */
+        @JavascriptInterface fun obdTest() {
+            Thread {
+                val log = StringBuilder()
+                val mi = Obd.readMiles(this@MainActivity, log)
+                if (mi != null) Obd.record(this@MainActivity, System.currentTimeMillis(), mi)
+                val res = JSONObject().put("ok", mi != null).put("miles", mi ?: JSONObject.NULL).put("log", log.toString())
+                runOnUiThread { web.evaluateJavascript("onObdTest($res)", null) }
+            }.start()
+        }
 
         @JavascriptInterface fun startDay() = runOnUiThread {
             if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) { askLocation(); return@runOnUiThread }
@@ -195,6 +253,7 @@ class MainActivity : Activity() {
         const val REQ_SMS = 10
         const val REQ_LOC = 11
         const val REQ_NOTIFY = 12
+        const val REQ_BT = 13
         const val SITE = "https://aaronzandman.github.io/Route2/"
         const val DOWNLOAD = "https://github.com/AaronZandman/Companion/releases/latest/download/Companion.apk"
     }
