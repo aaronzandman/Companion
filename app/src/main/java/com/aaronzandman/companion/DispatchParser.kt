@@ -40,8 +40,10 @@ object DispatchParser {
     ).joinToString("\t")
 
     /** Link that opens the Route Planner and offers to ADD these calls (handoff format, data after #, never sent to a server). */
-    fun plannerLink(site: String, edition: String, rows: List<String>): String {
-        val json = JSONObject().put("v", 1).put("a", 1).put("src", "companion").put("c", rows.joinToString("\n")).toString()
+    fun plannerLink(site: String, edition: String, rows: List<String>, uid: JSONObject? = null): String {
+        val o = JSONObject().put("v", 1).put("a", 1).put("src", "companion").put("c", rows.joinToString("\n"))
+        if (uid != null) o.put("u", uid)   // anonymous ID only, so the planner counts you as the same person
+        val json = o.toString()
         val d = Deflater(Deflater.BEST_COMPRESSION, true)
         d.setInput(json.toByteArray(Charsets.UTF_8)); d.finish()
         val out = ByteArrayOutputStream(); val buf = ByteArray(4096)

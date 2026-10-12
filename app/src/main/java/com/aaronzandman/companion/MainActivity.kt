@@ -251,13 +251,19 @@ class MainActivity : Activity() {
             for (i in 0 until all.length()) { val d = all.getJSONObject(i); if (d.optString("order") in want) rows.add(DispatchParser.plannerRow(d)) }
             if (rows.isEmpty()) return@runOnUiThread
             val edition = Store.get(this@MainActivity, "edition", "VA")
-            openUrl(DispatchParser.plannerLink(SITE, edition, rows))
+            val uid = try { JSONObject(Store.get(this@MainActivity, "uid", "")).takeIf { Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(it.optString("i")) } } catch (_: Exception) { null }
+            openUrl(DispatchParser.plannerLink(SITE, edition, rows, uid))
             Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) d.put("sent", true) else d }
         }
 
         @JavascriptInterface fun remove(orders: String) {
             val want = orders.split(",").map { it.trim() }.toSet()
             Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) null else d }
+        }
+
+        /** Keeps a copy of the anonymous ID where the Route Planner link builder can read it. */
+        @JavascriptInterface fun setUid(json: String) {
+            try { val o = JSONObject(json); if (Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(o.optString("i"))) Store.put(this@MainActivity, "uid", JSONObject().put("i", o.optString("i")).put("a", o.optLong("a")).toString()) } catch (_: Exception) {}
         }
 
         @JavascriptInterface fun setSetting(key: String, value: String) {

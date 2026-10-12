@@ -77,6 +77,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .ack input{width:22px;height:22px;flex:none;accent-color:var(--road)}
 .devd{margin:6px 0 0 30px;font-size:13px}.devd summary{color:var(--road);font-weight:600}
 .devd pre{white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.45 ui-monospace,monospace;margin:6px 0 0}
+.uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px}
 .ul{margin:6px 0;padding-left:20px;font-size:13px}.ul li{margin:3px 0}
 #usageCard details summary{color:var(--road);font-weight:600;margin-top:8px}
 #facts span{display:block}
@@ -174,6 +175,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <details><summary>What's sent</summary><ul class="ul">
         <li>App and version, and which Route Planner you picked (for example <i id="usageEd"></i>)</li>
         <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent feedback</li>
+        <li>Your anonymous ID (below), once a day, so you're counted as one person across days and devices</li>
         <li>Screen size, plus phone type and Android version (read from the app's built-in browser)</li>
         <li>General area (country and state), worked out by the counting service from your internet address. The address itself isn't stored.</li>
       </ul></details>
@@ -184,6 +186,10 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <li>Phone numbers, contacts, or any ID that identifies you or this phone</li>
       </ul></details>
       <details><summary>Where it goes</summary><p class="hint">Counts go to <b>GoatCounter</b>, a privacy-focused counting service, the same one Route Planner uses. Like any website, it sees your internet address while receiving a count; it uses it only to work out country and state and to avoid double counting for a few hours, and never saves it. No personally identifiable information is collected. Only the app's owner sees the totals, and only as counts. Counts are only sent when you're online.</p></details>
+      <div class="uidbox"><span>Your anonymous ID</span> <b id="uidShow"></b>
+        <div class="hint">A random code, not linked to your name, P number, or email. It goes to Route Planner with calls you send, so the planner on that device uses the same ID. To match an ID from Route Planner (☰ Menu → Settings → Usage data), type it here:</div>
+        <div class="row"><input type="text" id="uidIn" maxlength="9" placeholder="XXXX-XXXX" style="text-transform:uppercase;flex:1"><button class="btn sec" style="width:auto;margin:0" id="uidUse">Use this ID</button></div>
+        <div class="hint" id="uidMsg"></div></div>
       <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
     </div>
     <div class="card">
@@ -399,9 +405,12 @@ $("appSet").onclick=()=>A.openAppSettings();
 // ---- usage counts (anonymous; same service and fields as Route Planner) and Your stats ----
 const GC_CODE=(c=>c.includes("@@")?"":c)("@@GC_CODE@@");
 const ls={ get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); }catch(e){ return d; } }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} } };
+// Anonymous user ID: random, never linked to your name, P number, or email. Goes to Route Planner with calls you send.
+function makeUid(){ const a="0123456789ABCDEFGHJKMNPQRSTVWXYZ", r=new Uint8Array(8); crypto.getRandomValues(r); const t=[...r].map(x=>a[x%32]).join(""); return t.slice(0,4)+"-"+t.slice(4); }
+function getUid(){ let u=ls.get("uid",null); if(!u||!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(u.i)){ u={i:makeUid(),a:Date.now()}; ls.set("uid",u); } try{ A.setUid(JSON.stringify(u)); }catch(e){} return u; }
 function track(ev){
   const ed=(S.settings||{}).edition||"VA", ver=String(S.version||"").split(".").slice(0,3).join(".");
-  const name=`companion/${ed}/${ev}`, send=!!GC_CODE && navigator.onLine;
+  const name=ev.startsWith("user/")?`users/${ev.slice(5)}`:`companion/${ed}/${ev}`, send=!!GC_CODE && navigator.onLine;
   if(send){ try{ const img=new Image(); img.referrerPolicy="no-referrer";
     img.src=`https://${GC_CODE}.goatcounter.com/count?p=${encodeURIComponent(name)}&t=${encodeURIComponent("Companion "+ver)}&e=1&s=${screen.width},${screen.height},${devicePixelRatio}&rnd=${Math.random().toString(36).slice(2)}`; }catch(e){} }
   const log=ls.get("sentLog",[]); log.push({t:Date.now(),e:name,v:ver,s:send?1:0}); while(log.length>20) log.shift(); ls.set("sentLog",log);
@@ -410,12 +419,17 @@ function dailyUsage(){
   const today=new Date().toDateString();
   if(!ls.get("firstRunSent",false)){ ls.set("firstRunSent",true); track("first-run"); }
   if(ls.get("dailySent","")!==today){ ls.set("dailySent",today); track("daily"); }
+  if(ls.get("uidDay","")!==today){ ls.set("uidDay",today); track("user/"+getUid().i); }
 }
+$("uidUse").onclick=()=>{ let v=$("uidIn").value.toUpperCase().replace(/[^0-9A-Z]/g,""); v=v.slice(0,4)+"-"+v.slice(4,8);
+  if(!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(v)){ $("uidMsg").textContent="Enter the 8-character ID from Route Planner, like 7F3K-9QXA."; return; }
+  const mine=getUid(); ls.set("uid",{i:v,a:Math.min(1,mine.a)}); ls.set("uidDay",""); getUid(); $("uidIn").value=""; $("uidMsg").textContent="This phone now uses ID "+v+"."; renderUsage(); };
 function renderUsage(){
   const ed=(S.settings||{}).edition||"VA";
   $("usageEd").textContent=`Companion ${String(S.version||"").split(".").slice(0,3).join(".")}, ${ed} planner`;
   const log=ls.get("sentLog",[]).slice().reverse();
-  $("sentLog").innerHTML = log.length ? log.map(x=>`${esc(new Date(x.t).toLocaleString())} – <b>${esc(x.e.split("/").pop())}</b> (${esc(x.e.split("/")[1])} planner, v${esc(x.v)}, screen ${screen.width}×${screen.height})${x.s?"":" – not sent: offline or counting not set up yet"}`).join("<br>") : "Nothing yet.";
+  $("uidShow").textContent=getUid().i;
+  $("sentLog").innerHTML = log.length ? log.map(x=>`${esc(new Date(x.t).toLocaleString())} – <b>${esc(x.e.startsWith("users/")?"daily user count, ID "+x.e.slice(6):x.e.split("/").pop())}</b> (${esc(x.e.startsWith("users/")?"":x.e.split("/")[1]+" planner, ")}v${esc(x.v)}, screen ${screen.width}×${screen.height})${x.s?"":" – not sent: offline or counting not set up yet"}`).join("<br>") : "Nothing yet.";
   const segs=(S.segments||[]), days={}, stores={};
   segs.forEach(g=>{ const k=dayKey(g.start); (days[k]=days[k]||{h:0,first:g.start}); days[k].h+=hu(g.end-g.start); days[k].first=Math.min(days[k].first,g.start);
     if(g.type==="STORE"&&g.store) stores[g.store]=(stores[g.store]||0)+1; });
