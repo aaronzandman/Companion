@@ -61,7 +61,7 @@ button{font:inherit}
 .live{color:var(--road);font-weight:700}
 label.set{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
 label.set:first-of-type{border-top:0}
-select,input[type=text]{font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+select,input[type=text],input[type=email]{max-width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
 input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .upd{display:none;background:var(--warn);color:var(--warnink);border-radius:10px;padding:12px;margin-bottom:12px}
 .upd.show{display:block}
@@ -77,12 +77,13 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .types label{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px}
 .types label:has(input:checked){border-color:var(--ink);background:var(--soft);font-weight:600}
 .pnum{display:flex;align-items:center;gap:6px}.pnum span{font-weight:700}
+.shot{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px}
 .fbwarn{background:#FFF3C4;color:#3A2E00;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px}
 .ack{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:14px}
 .ack input{width:22px;height:22px;flex:none;accent-color:var(--road)}
 .devd{margin:6px 0 0 30px;font-size:13px}.devd summary{color:var(--road);font-weight:600}
 .devd pre{white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.45 ui-monospace,monospace;margin:6px 0 0}
-.uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px}
+.uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px;flex-wrap:wrap}.uidbox input{min-width:0;flex:1 1 120px}
 .ul{margin:6px 0;padding-left:20px;font-size:13px}.ul li{margin:3px 0}
 #usageCard details summary{color:var(--road);font-weight:600;margin-top:8px}
 #facts span{display:block}
@@ -245,6 +246,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="hint">Numbers only, 3 to 10 digits. The P is added for you.</div>
     <label class="lbl" for="fbMsg">What happened, or what would you like?</label>
     <textarea id="fbMsg" maxlength="1500"></textarea>
+    <div class="shot">📷 <b>A screenshot helps a lot.</b> Take one showing the problem (press Power + Volume down together), then add it here. It's attached to the Outlook email for you.
+      <div class="row" style="align-items:center;margin-top:6px"><button type="button" class="btn sec" style="margin:0" id="fbShot">Add screenshot</button><span class="hint" id="fbShotN" style="flex:1"></span></div></div>
     <div class="fbwarn"><b>Keep it general when you can.</b> Broad terms are best. If your report needs proprietary or confidential details, check the box below so it's handled carefully.</div>
     <label class="ack"><input type="checkbox" id="fbProp"> <span><b>This report contains proprietary or confidential information.</b></span></label>
     <label class="ack"><input type="checkbox" id="fbDevOn" checked> <span><b>Include device details to help fix the problem.</b><br><span class="hint">Added to the bottom of the email, so you see it in Outlook before sending. Never includes your texts, calls, locations, odometer readings, contacts, or phone ID numbers.</span></span></label>
@@ -544,10 +547,13 @@ function devDetails(){
   return t+`\nScreen: ${screen.width}×${screen.height} · ${matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"} mode · internet ${navigator.onLine?"online":"offline"}`+
     `\nRecent screen errors: ${ERRLOG.length?"":"none"}`+ERRLOG.map(e=>`\n  ${new Date(e.t).toLocaleString()} – ${e.m}`).join("");
 }
-$("fbBtn").onclick=()=>{ $("fbErr").textContent=""; $("fbProp").checked=false; $("fbDevOn").checked=true;
+$("fbBtn").onclick=()=>{ $("fbErr").textContent=""; onShots(0); try{ A.clearScreenshots(); }catch(e){} $("fbProp").checked=false; $("fbDevOn").checked=true;
   $("fbName").value=localStorage.getItem("fbName")||""; $("fbP").value=localStorage.getItem("fbP")||"";
   $("fbDev").textContent=devDetails(); $("fbDlg").hidden=false; ($("fbName").value?$("fbMsg"):$("fbName")).focus(); };
-$("fbCancel").onclick=()=>$("fbDlg").hidden=true;
+$("fbCancel").onclick=()=>{ $("fbDlg").hidden=true; A.clearScreenshots(); fbShots=0; };
+let fbShots=0;
+$("fbShot").onclick=()=>A.pickScreenshots();
+window.onShots=n=>{ fbShots=n; $("fbShotN").textContent=n?`${n} screenshot${n>1?"s":""} attached${n>=3?" (most you can add)":""}`:""; $("fbShot").textContent=n?"Add another":"Add screenshot"; $("fbShot").disabled=n>=3; };
 $("fbDlg").onclick=e=>{ if(e.target.id==="fbDlg") $("fbDlg").hidden=true; };
 $("fbP").addEventListener("input",e=>{ const v=e.target.value.replace(/\D/g,"").slice(0,10); if(v!==e.target.value) e.target.value=v; });
 $("fbForm").onsubmit=e=>{
@@ -560,10 +566,12 @@ $("fbForm").onsubmit=e=>{
   err.textContent=""; localStorage.setItem("fbName",name); localStorage.setItem("fbP",pn);
   const subject=`[Companion Feedback]${prop?" [PROPRIETARY]":""} ${type} – ${name} (P${pn})`;
   const body=[...(prop?["🚩 RED FLAG: The sender marked this report as containing PROPRIETARY or CONFIDENTIAL information. Review before sharing it anywhere else.",""]:[]),
-    `Type: ${type}`,`Name: ${name}`,`P Number: P${pn}`,"",msg,"","---",`App: Companion ${S.version||""}`,`Sent: ${new Date().toLocaleString()}`,
+    `Type: ${type}`,`Name: ${name}`,`P Number: P${pn}`,"",msg,"",
+    ...(fbShots?[`📷 ${fbShots} screenshot${fbShots>1?"s":""} attached.`,""]:type!=="Suggestion"?["📷 No screenshot attached. If you can, add one in Outlook before sending.",""]:[]),"---",`App: Companion ${S.version||""}`,`Sent: ${new Date().toLocaleString()}`,
     `Proprietary information: ${prop?"YES – flagged by sender":"No"}`,
     ...($("fbDevOn").checked?["","Device details (included with the sender's permission):",devDetails()]:["","Device details: not included (sender unchecked it)"])].join("\n");
-  A.feedback(subject,body); track("feedback"); $("fbMsg").value=""; $("fbDlg").hidden=true; toast("Feedback ready in Outlook. Tap Send there.");
+  if(!fbShots && type!=="Suggestion" && !confirm("No screenshot added. A screenshot of the problem makes it much easier to fix.\n\nTap OK to send without one, or Cancel to go back and add one.")) return;
+  A.feedback(subject,body); fbShots=0; track("feedback"); $("fbMsg").value=""; $("fbDlg").hidden=true; toast("Feedback ready in Outlook. Tap Send there.");
 };
 function devRows(list,kind){ return list.map(d=>`<div class="dev"><span><b>${esc(d.name)}</b><br><span class="hint">${kind==="ble"?"Bluetooth LE":"Paired"} · ${esc(d.addr)}</span></span><button class="btn" style="width:auto;margin:0" data-addr="${esc(d.addr)}" data-name="${esc(d.name)}" data-kind="${kind}">Use</button></div>`).join(""); }
 function wireDevs(){ $("obdList").querySelectorAll("[data-addr]").forEach(b=>b.onclick=()=>{ A.setObd(b.dataset.addr,b.dataset.name,b.dataset.kind==="ble"?"ble":"auto"); $("obdList").innerHTML=""; toast("Adapter saved. Tap Test reading."); refresh(); }); }

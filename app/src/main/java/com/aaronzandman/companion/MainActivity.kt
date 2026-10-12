@@ -31,6 +31,8 @@ import java.net.URL
 /** One screen: a local web page (assets/ui) that talks to Android through the "Android" bridge below. */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    /** Screenshots picked for the next feedback report (copied into the app's cache). */
+    private val shots = ArrayList<File>()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +70,25 @@ class MainActivity : Activity() {
     }
 
     override fun onResume() { super.onResume(); if (::web.isInitialized) web.evaluateJavascript("window.refresh&&refresh()", null) }
+
+    @Deprecated("Activity result API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_SHOT || resultCode != RESULT_OK || data == null) return
+        val uris = ArrayList<Uri>()
+        data.clipData?.let { cd -> for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri) } ?: data.data?.let { uris.add(it) }
+        val dir = File(cacheDir, "exports").apply { mkdirs() }
+        for (u in uris) {
+            if (shots.size >= 3) break
+            try {
+                val ext = if (contentResolver.getType(u)?.contains("png") == true) "png" else "jpg"
+                val f = File(dir, "screenshot-${shots.size + 1}-${System.currentTimeMillis() % 100000}.$ext")
+                contentResolver.openInputStream(u)?.use { inp -> f.outputStream().use { inp.copyTo(it) } }
+                if (f.length() in 1..15_000_000) shots.add(f) else f.delete()
+            } catch (_: Exception) {}
+        }
+        web.evaluateJavascript("onShots(${shots.size})", null)
+    }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -224,8 +245,17 @@ class MainActivity : Activity() {
 
         /** Opens Outlook with a feedback report to the app's owner. The user sees everything and taps Send. */
         @JavascriptInterface fun feedback(subject: String, body: String) = runOnUiThread {
-            outlook(FEEDBACK_TO, subject, body, null)
+            outlook(FEEDBACK_TO, subject, body, null, ArrayList(shots))
+            shots.clear()
         }
+
+        /** Lets the user pick up to 3 screenshots to attach to the feedback email. Calls onShots(count). */
+        @JavascriptInterface fun pickScreenshots() = runOnUiThread {
+            val i = Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            try { @Suppress("DEPRECATION") startActivityForResult(Intent.createChooser(i, "Choose screenshots"), REQ_SHOT) } catch (_: Exception) {}
+        }
+
+        @JavascriptInterface fun clearScreenshots() { shots.forEach { it.delete() }; shots.clear() }
 
         /** Troubleshooting details. Shown in full on the feedback form before anything is sent. */
         @JavascriptInterface fun deviceDetails(): String = details()
@@ -330,9 +360,16 @@ class MainActivity : Activity() {
     }
 
     /** The one way Companion sends email: Outlook, with everything filled in. Nothing is sent until the user taps Send. */
-    private fun outlook(to: String, subject: String, body: String, attach: File?) {
+    private fun outlook(to: String, subject: String, body: String, attach: File?, images: List<File> = emptyList()) {
         try {
-            val i = Intent(Intent.ACTION_SEND).apply {
+            val i = if (images.isNotEmpty()) Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                setPackage(OUTLOOK); type = "image/*"
+                putExtra(Intent.EXTRA_EMAIL, arrayOf(to)); putExtra(Intent.EXTRA_SUBJECT, subject); putExtra(Intent.EXTRA_TEXT, body)
+                val uris = ArrayList(images.map { FileProvider.getUriForFile(this@MainActivity, "$packageName.files", it) })
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                clipData = ClipData.newRawUri(images[0].name, uris[0]).also { cd -> uris.drop(1).forEach { cd.addItem(ClipData.Item(it)) } }
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } else Intent(Intent.ACTION_SEND).apply {
                 setPackage(OUTLOOK)
                 putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
                 putExtra(Intent.EXTRA_SUBJECT, subject)
@@ -388,6 +425,7 @@ class MainActivity : Activity() {
         const val REQ_LOC = 11
         const val REQ_NOTIFY = 12
         const val REQ_BT = 13
+        const val REQ_SHOT = 14
         const val SITE = "https://aaronzandman.github.io/Route2/"
         const val OUTLOOK = "com.microsoft.office.outlook"
         const val FEEDBACK_TO = "Aaron.zandman@publix.com"
