@@ -21,6 +21,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -100,6 +102,7 @@ class MainActivity : Activity() {
                 .put("version", BuildConfig.VERSION_NAME)
                 .put("dispatches", Store.dispatches(c))
                 .put("today", Tracker.today(c))
+                .put("segments", Store.segments(c))
                 .put("tracker", Tracker.state(c))
                 .put("stores", Stores.all(c).size)
                 .put("perm", JSONObject()
@@ -115,7 +118,9 @@ class MainActivity : Activity() {
                     .put("edition", Store.get(c, "edition", "VA"))
                     .put("radius", Store.get(c, "radius", "250"))
                     .put("senderFilter", Store.get(c, "senderFilter", ""))
-                    .put("smsOn", Store.get(c, "smsOn", "1") == "1"))
+                    .put("smsOn", Store.get(c, "smsOn", "1") == "1")
+                    .put("workEmail", Store.get(c, "workEmail", ""))
+                    .put("autoEmail", Store.get(c, "autoEmail", "1") == "1"))
                 .toString()
         }
 
@@ -201,8 +206,37 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun endDay() = runOnUiThread {
-            Tracker.endDay(this@MainActivity); TrackerService.stop(this@MainActivity)
-            web.evaluateJavascript("refresh()", null)
+            val start = Tracker.state(this@MainActivity).optLong("dayStart", 0L)
+            val end = System.currentTimeMillis()
+            Tracker.endDay(this@MainActivity, end); TrackerService.stop(this@MainActivity)
+            web.evaluateJavascript("refresh();window.onDayEnded&&onDayEnded($start,$end)", null)
+        }
+
+        /** Opens Outlook (and only Outlook) with the time log filled in and a .csv attached. The user taps Send. */
+        @JavascriptInterface fun emailDay(to: String, subject: String, body: String, fileName: String, csv: String) = runOnUiThread {
+            val addr = to.trim()
+            if (!EMAIL.matches(addr)) { web.evaluateJavascript("onEmail('error')", null); return@runOnUiThread }
+            try {
+                val dir = File(cacheDir, "exports").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                val safe = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifEmpty { "Companion-time.csv" }
+                val f = File(dir, safe); f.writeText(csv)
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", f)
+                val i = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    setPackage(OUTLOOK)
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf(addr))
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                    putExtra(Intent.EXTRA_TEXT, body)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newRawUri(safe, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(i)
+            } catch (e: android.content.ActivityNotFoundException) {
+                web.evaluateJavascript("onEmail('noOutlook')", null)
+            } catch (e: Exception) {
+                web.evaluateJavascript("onEmail('error')", null)
+            }
         }
 
         @JavascriptInterface fun deleteSegment(start: String) { Tracker.deleteSegment(this@MainActivity, start.toLong()) }
@@ -225,7 +259,8 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun setSetting(key: String, value: String) {
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn")) Store.put(this@MainActivity, key, value)
+            if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail")) Store.put(this@MainActivity, key, value)
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
@@ -255,6 +290,9 @@ class MainActivity : Activity() {
         const val REQ_NOTIFY = 12
         const val REQ_BT = 13
         const val SITE = "https://aaronzandman.github.io/Route2/"
+        const val OUTLOOK = "com.microsoft.office.outlook"
+        /** Only Publix work addresses are accepted. */
+        val EMAIL = Regex("^[A-Za-z0-9._%+'-]+@publix\\.com$", RegexOption.IGNORE_CASE)
         const val DOWNLOAD = "https://github.com/AaronZandman/Companion/releases/latest/download/Companion.apk"
     }
 }

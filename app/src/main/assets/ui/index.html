@@ -110,6 +110,13 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div id="segs"></div>
       <button class="btn sec" id="copyDay">Copy today's log</button>
     </div>
+    <div class="card" id="mailCard">
+      <h2>Email my time</h2>
+      <div class="hint" id="mailTo"></div>
+      <label class="set"><span><b>Day</b></span><select id="mailDay"></select></label>
+      <button class="btn" id="mailBtn">Email this day with Outlook</button>
+      <div class="hint" style="margin-top:6px">Opens Outlook with the email filled in and a spreadsheet (.csv) of the day attached. Tap Send in Outlook.</div>
+    </div>
   </section>
 
   <!-- SETTINGS -->
@@ -121,6 +128,12 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
+    </div>
+    <div class="card">
+      <h2>Email</h2>
+      <label class="set"><span><b>My work email</b><br><span class="hint">Your @publix.com address. Time logs go here, through Outlook only.</span></span><input type="email" id="workEmail" inputmode="email" autocomplete="email" placeholder="name@publix.com" style="width:170px"></label>
+      <div class="hint" id="emailErr" style="color:var(--red)"></div>
+      <label class="set"><span><b>Email my day when I end it</b><br><span class="hint">Tapping End my day opens Outlook with the day's log ready to send.</span></span><input type="checkbox" class="sw" id="autoEmail"></label>
     </div>
     <div class="card">
       <h2>Vehicle odometer</h2>
@@ -135,7 +148,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="hint" id="about"></div>
       <button class="btn sec" id="updBtn">Check for updates</button>
       <button class="btn sec" id="appSet">Android app settings</button>
-      <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates and when you send calls to Route Planner.</p>
+      <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates, when you send calls to Route Planner, and when you send your time log from Outlook.</p>
     </div>
   </section>
 </main>
@@ -210,9 +223,12 @@ function render(){
     : `<div class="empty">Nothing recorded today yet.</div>`;
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
+  renderMail();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
+  if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
+  $("autoEmail").checked=!!st.workEmail && st.autoEmail!==false; $("autoEmail").disabled=!st.workEmail;
   $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"250"; $("smsOn").checked=st.smsOn!==false;
   const ob=S.obd||{}, lastO=(S.odo||[]).slice(-1)[0];
   $("obdNow").innerHTML = ob.addr ? `Adapter: ${esc(ob.name||ob.addr)}${lastO?` · last reading ${fmtMi(lastO.mi)} mi, ${when(lastO.t)}`:""}` : "No adapter chosen yet.";
@@ -236,16 +252,70 @@ $("selNew").onclick=()=>{ (S.dispatches||[]).filter(d=>!d.sent).forEach(d=>picke
 $("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };
 $("scanBtn").onclick=()=>{ const n=A.scan(); if(n<0){ A.askSms(); return; } toast(n?`Found ${n} new call${n>1?"s":""}.`:"No new dispatch texts in the last 7 days."); refresh(); };
 $("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your day? The timer will stop.")) A.endDay(); } else A.startDay(); };
-$("copyDay").onclick=()=>{
-  const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
-  const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=hu(g.end-g.start));
-  let t=`Time log – ${new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})}\nDriving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs · Total ${fh(tot.DRIVE+tot.STORE+tot.STOP)} hrs\n`;
+// ---- day log: shared by Copy, Email and the end-of-day email ----
+const dayName=d=>d.toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric",year:"numeric"});
+const dayKey=t=>{ const d=new Date(t); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+function totals(segs){ const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=hu(g.end-g.start)); tot.ALL=tot.DRIVE+tot.STORE+tot.STOP; return tot; }
+function dayText(segs,title){
+  const tot=totals(segs);
+  let t=`Time log – ${title}\nDriving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs · Total ${fh(tot.ALL)} hrs\n`;
   const dmc=driveMiles(segs); if(dmc!==null) t+=`Miles by odometer: ${fmtMi(dmc)}\n`;
   segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)} hrs)`;
     const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
     if(g.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)} = ${fmtMi(b.mi-a.mi)} mi`; else if(g.type!=="DRIVE"&&(a||b)) t+=`  odo ${fmtMi((a||b).mi)}`; });
-  A.copy(t);
+  return t;
+}
+const csvq=v=>{ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+function dayCsv(segs){
+  const rows=[["Date","Start","End","Activity","Store","City","Hours","Odometer start","Odometer end","Miles"]];
+  segs.forEach(g=>{ const a=odoAt(g.start), b=g.live?null:odoAt(g.end), si=g.type==="STORE"?store(g.store):{};
+    const mi=g.type==="DRIVE"&&a&&b&&b.mi>=a.mi?fmtMi(b.mi-a.mi):"";
+    rows.push([new Date(g.start).toLocaleDateString(), tm(g.start), g.live?"in progress":tm(g.end), g.type==="DRIVE"?"Driving":g.type==="STORE"?"At store":"Stopped",
+      g.type==="STORE"?g.store:"", si.city||"", hm(g.end-g.start), a?a.mi.toFixed(1):"", b?b.mi.toFixed(1):"", mi]); });
+  const tot=totals(segs), dm=driveMiles(segs);
+  rows.push([]); rows.push(["Total","","","Driving","","",fh(tot.DRIVE)]); rows.push(["Total","","","At stores","","",fh(tot.STORE)]);
+  rows.push(["Total","","","Other stops","","",fh(tot.STOP)]); rows.push(["Total","","","All","","",fh(tot.ALL),"","",dm!==null?fmtMi(dm):""]);
+  return rows.map(r=>r.map(csvq).join(",")).join("\r\n")+"\r\n";
+}
+function allSegs(){ return (S.segments||[]).concat((S.today||[]).filter(g=>g.live)); }
+function segsForDay(key){ return allSegs().filter(g=>dayKey(g.start)===key).sort((a,b)=>a.start-b.start); }
+// Only Publix work addresses are accepted (name@publix.com).
+const validEmail=e=>/^[A-Za-z0-9._%+'-]+@publix\.com$/i.test(e);
+function emailSegs(segs,title,key){
+  const to=(S.settings||{}).workEmail||"";
+  if(!validEmail(to)){ toast("Add your work email in Settings first."); showTab("settings"); $("workEmail").focus(); return; }
+  if(!segs.length){ toast("Nothing recorded that day."); return; }
+  const tot=totals(segs);
+  const subject=`Time log – ${title} – ${fh(tot.ALL)} hrs`;
+  const body=dayText(segs,title)+"\n\nHours are rounded up to the next hundredth (0.01 hr = 36 sec). Spreadsheet attached.\nSent from Companion "+(S.version||"");
+  A.emailDay(to,subject,body,`Companion-time-${key}.csv`,dayCsv(segs));
+}
+window.onEmail=r=>{ if(r==="noOutlook"){ if(confirm("Outlook isn't installed on this phone. Your time log is only sent through Outlook. Open the Play Store to install it?")) A.open("market://details?id=com.microsoft.office.outlook"); } else if(r==="error") toast("Couldn't open Outlook."); };
+// Called by the app right after End my day, with the day's start and end times.
+window.onDayEnded=(start,end)=>{
+  refresh(); const st=S.settings||{};
+  if(!st.workEmail || st.autoEmail===false) return;
+  const segs=allSegs().filter(g=>g.start>=start-60e3 && g.start<=end).sort((a,b)=>a.start-b.start);
+  if(segs.length) emailSegs(segs,dayName(new Date(start)),dayKey(start));
 };
+function renderMail(){
+  const st=S.settings||{}, sel=$("mailDay"), keep=sel.value;
+  $("mailTo").innerHTML = st.workEmail ? `Sends to <b>${esc(st.workEmail)}</b> · change in Settings` : `Add your work email in <a href="#" onclick="showTab('settings');return false">Settings</a> to email your time.`;
+  const keys=[...new Set(allSegs().map(g=>dayKey(g.start)))].sort().reverse().slice(0,30);
+  const today=dayKey(Date.now()); if(!keys.includes(today)) keys.unshift(today);
+  sel.innerHTML=keys.map(k=>{ const [y,m,d]=k.split("-").map(Number); const dt=new Date(y,m-1,d);
+    return `<option value="${k}">${k===today?"Today":dt.toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"})}</option>`; }).join("");
+  if(keys.includes(keep)) sel.value=keep;
+}
+$("mailBtn").onclick=()=>{ const k=$("mailDay").value; const [y,m,d]=k.split("-").map(Number); emailSegs(segsForDay(k),dayName(new Date(y,m-1,d)),k); };
+$("copyDay").onclick=()=>{
+  const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
+  A.copy(dayText(segs,new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})));
+};
+$("workEmail").onchange=e=>{ const v=e.target.value.trim();
+  if(v && !validEmail(v)){ $("emailErr").textContent="Use your Publix work email (name@publix.com). Other addresses can't be used."; return; }
+  $("emailErr").textContent=""; A.setSetting("workEmail",v); if(v) toast("Saved. Your time will be emailed to "+v+"."); refresh(); };
+$("autoEmail").onchange=e=>{ A.setSetting("autoEmail",e.target.checked?"1":"0"); refresh(); };
 $("edition").onchange=e=>A.setSetting("edition",e.target.value);
 $("radius").onchange=e=>A.setSetting("radius",e.target.value);
 $("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
