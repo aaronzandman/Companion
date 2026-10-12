@@ -129,7 +129,8 @@ class MainActivity : Activity() {
                     .put("senderFilter", Store.get(c, "senderFilter", ""))
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
-                    .put("autoEmail", Store.get(c, "autoEmail", "1") == "1"))
+                    .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
+                    .put("home", Store.get(c, "home", "").let { if (it.isEmpty()) JSONObject.NULL else JSONObject(it) }))
                 .toString()
         }
 
@@ -241,6 +242,42 @@ class MainActivity : Activity() {
             outlook(addr, subject, body, f)
         }
 
+        @JavascriptInterface fun setTag(start: String, tag: String) {
+            Tracker.setTag(this@MainActivity, start.toLong(), if (tag == "FUEL") "FUEL" else "")
+        }
+
+        /** Saves the phone's current GPS position as home (best fix within ~20 s). Calls onHome(result). */
+        @SuppressLint("MissingPermission")
+        @JavascriptInterface fun saveHome() = runOnUiThread {
+            if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) { askLocation(); return@runOnUiThread }
+            val lm = getSystemService(android.location.LocationManager::class.java) ?: return@runOnUiThread
+            var best: android.location.Location? = null
+            var done = false
+            fun finish() {
+                if (done) return; done = true
+                val b = best
+                val res = if (b == null) JSONObject().put("ok", false)
+                else {
+                    Store.put(this@MainActivity, "home", JSONObject().put("lat", b.latitude).put("lng", b.longitude).put("acc", b.accuracy.toInt()).put("at", System.currentTimeMillis()).toString())
+                    JSONObject().put("ok", true).put("acc", b.accuracy.toInt())
+                }
+                web.evaluateJavascript("onHome($res)", null)
+            }
+            val l = object : android.location.LocationListener {
+                override fun onLocationChanged(loc: android.location.Location) {
+                    if (best == null || loc.accuracy < best!!.accuracy) best = loc
+                    if (loc.accuracy <= 25f) { lm.removeUpdates(this); finish() }
+                }
+                @Deprecated("old API") override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+                override fun onProviderEnabled(p: String) {}
+                override fun onProviderDisabled(p: String) {}
+            }
+            try { lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 1000L, 0f, l, mainLooper) } catch (_: Exception) {}
+            web.postDelayed({ try { lm.removeUpdates(l) } catch (_: Exception) {}; finish() }, 20_000)
+        }
+
+        @JavascriptInterface fun clearHome() { Store.put(this@MainActivity, "home", "") }
+
         @JavascriptInterface fun deleteSegment(start: String) { Tracker.deleteSegment(this@MainActivity, start.toLong()) }
 
         /** Opens the Route Planner with these calls (order numbers, comma-separated); they're added to the list there. */
@@ -338,6 +375,7 @@ class MainActivity : Activity() {
             "Location services: ${if (Build.VERSION.SDK_INT >= 28) (if (lm?.isLocationEnabled == true) "on" else "OFF") else "unknown"} · Bluetooth: ${when (bt) { true -> "on"; false -> "off"; else -> "unknown" }}",
             "Timer: ${if (trk.optBoolean("running")) "running since ${fmt.format(java.util.Date(trk.optLong("dayStart")))}" else "not running"}",
             "Data (counts only): ${Store.dispatches(c).length()} dispatch texts, ${Store.segments(c).length()} time entries, ${Stores.all(c).size} stores loaded",
+            "Home location: ${if (Tracker.home(c) != null) "saved (location not included)" else "not saved"}",
             "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", "250")} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
             "OBD adapter: ${if (Obd.enabled(c)) "set up (${obdType} Bluetooth)" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
             "Last crash: ${Store.get(c, "lastCrash", "none")}"

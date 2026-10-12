@@ -8,13 +8,21 @@ import org.json.JSONObject
  * Turns location fixes into time entries:
  *  DRIVE  – moving faster than ~10 mph for 45 s
  *  STORE  – within the store radius (default 250 m) and slow for 90 s
- *  STOP   – stopped somewhere that isn't a store for 3 min
+ *  HOME   – at the saved home location (within 200 m) and slow for 90 s
+ *  STOP   – stopped somewhere that isn't a store or home for 3 min
+ * Each entry also keeps the GPS distance travelled ("m", meters) for mileage when there's no odometer reading.
  * Entries shorter than 1 minute are dropped. State is saved so it survives the app closing.
  */
 object Tracker {
     private const val DRIVE_MS = 45_000L
     private const val STORE_MS = 90_000L
     private const val STOP_MS = 180_000L
+    private const val HOME_M = 200.0
+
+    /** The saved home location, or null. Kept on this phone only. */
+    fun home(c: Context): Pair<Double, Double>? = try {
+        val o = JSONObject(Store.get(c, "home", "")); Pair(o.getDouble("lat"), o.getDouble("lng"))
+    } catch (_: Exception) { null }
     private val lock = Any()
 
     fun state(c: Context) = JSONObject(Store.get(c, "trk", "{}"))
@@ -37,8 +45,10 @@ object Tracker {
         val start = cur.optLong("start")
         if (end - start < 60_000L) return
         val segs = Store.segments(c)
-        segs.put(JSONObject().put("type", cur.optString("type")).put("store", cur.optString("store"))
-            .put("start", start).put("end", end))
+        val g = JSONObject().put("type", cur.optString("type")).put("store", cur.optString("store"))
+            .put("start", start).put("end", end).put("m", Math.round(cur.optDouble("m", 0.0)))
+        if (cur.optString("tag").isNotEmpty()) g.put("tag", cur.optString("tag"))
+        segs.put(g)
         Store.saveSegments(c, segs)
     }
 
@@ -54,14 +64,19 @@ object Tracker {
             if (dt > 0) speed = Stores.meters(last.optDouble("lat"), last.optDouble("lng"), lat, lng) / dt
         }
         s.put("last", JSONObject().put("lat", lat).put("lng", lng).put("t", t).put("speed", speed))
+        val stepM = if (last != null) Stores.meters(last.optDouble("lat"), last.optDouble("lng"), lat, lng) else 0.0
 
         val radius = Store.get(c, "radius", "250").toDoubleOrNull() ?: 250.0
         val near = Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius }?.first
+        val atHome = home(c)?.let { Stores.meters(it.first, it.second, lat, lng) <= HOME_M } == true
         val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", t)
+        // GPS distance while moving (ignores parked jitter and impossible jumps)
+        if (stepM in 0.0..5000.0 && speed >= 2.0) cur.put("m", cur.optDouble("m", 0.0) + stepM)
         val obsType: String; val obsStore: String
         when {
             speed >= 4.5 -> { obsType = "DRIVE"; obsStore = "" }
             near != null && speed < 2.5 -> { obsType = "STORE"; obsStore = near.num }
+            atHome && speed < 2.5 -> { obsType = "HOME"; obsStore = "" }
             speed in 0.0..1.5 -> { obsType = "STOP"; obsStore = "" }
             else -> { obsType = cur.optString("type"); obsStore = cur.optString("store") }
         }
@@ -70,7 +85,7 @@ object Tracker {
         } else {
             val cand = s.optJSONObject("cand")
             if (cand != null && cand.optString("type") == obsType && cand.optString("store") == obsStore) {
-                val need = when (obsType) { "DRIVE" -> DRIVE_MS; "STORE" -> STORE_MS; else -> STOP_MS }
+                val need = when (obsType) { "DRIVE" -> DRIVE_MS; "STORE", "HOME" -> STORE_MS; else -> STOP_MS }
                 val since = cand.optLong("since")
                 if (t - since >= need) {
                     close(c, cur, since)
@@ -93,6 +108,7 @@ object Tracker {
         return when (cur.optString("type")) {
             "DRIVE" -> "Driving since $since"
             "STORE" -> "At store ${cur.optString("store")}" + (Stores.byNum(c, cur.optString("store"))?.let { " – ${it.city}" } ?: "") + " since $since"
+            "HOME" -> "At home since $since"
             else -> "Stopped since $since"
         }
     }
@@ -109,6 +125,14 @@ object Tracker {
             out.put(JSONObject(it.toString()).put("end", System.currentTimeMillis()).put("live", true))
         }
         return out
+    }
+
+    /** Marks an entry (or the one in progress) with a tag such as FUEL; empty tag clears it. */
+    fun setTag(c: Context, start: Long, tag: String) = synchronized(lock) {
+        val segs = Store.segments(c); val out = JSONArray()
+        for (i in 0 until segs.length()) { val g = segs.getJSONObject(i); if (g.optLong("start") == start) { if (tag.isEmpty()) g.remove("tag") else g.put("tag", tag) }; out.put(g) }
+        Store.saveSegments(c, out)
+        val s = state(c); s.optJSONObject("cur")?.let { if (it.optLong("start") == start) { if (tag.isEmpty()) it.remove("tag") else it.put("tag", tag); save(c, s) } }
     }
 
     fun deleteSegment(c: Context, start: Long) = synchronized(lock) {

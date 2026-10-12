@@ -51,7 +51,12 @@ button{font:inherit}
 .tot span{font-size:12px;color:var(--muted)}
 .seg{display:grid;grid-template-columns:8px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .seg i{width:8px;align-self:stretch;border-radius:4px;background:var(--stop)}
-.seg i.DRIVE{background:var(--drive)}.seg i.STORE{background:var(--store)}
+.seg i.DRIVE{background:var(--drive)}.seg i.STORE{background:var(--store)}.seg i.HOME{background:#B07A2A}
+.pay{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;margin-right:4px}
+.pay.WORK{background:#DDEFE6;color:#14513A}.pay.PERSONAL{background:#F7E3C8;color:#6B4210}.pay.OFF{background:var(--soft);color:var(--muted)}
+#payRow{grid-template-columns:1fr 1fr}
+.tot .work{box-shadow:inset 0 -3px 0 #2E8A66}.tot .pers{box-shadow:inset 0 -3px 0 #C98A2E}
+.fuel{border:1.5px solid var(--line);background:none;border-radius:999px;padding:2px 8px;font-size:12px;color:var(--muted)}.fuel.on{border-color:#C98A2E;color:#6B4210;background:#F7E3C8;font-weight:700}
 .seg .t{font-size:13px;color:var(--muted)}
 .live{color:var(--road);font-weight:700}
 label.set{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
@@ -119,12 +124,18 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="status" id="status">Not tracking</div>
       <button class="btn" id="dayBtn">Start my day</button>
       <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
+      <div class="tot" id="payRow">
+        <div class="work"><b id="tWork">0.00</b><span>Work hrs</span></div>
+        <div class="pers"><b id="tPers">0.00</b><span>Personal hrs</span></div>
+        <div class="work"><b id="tWorkMi">—</b><span>Work miles</span></div>
+        <div class="pers"><b id="tPersMi">—</b><span>Personal miles</span></div>
+      </div>
       <div class="tot" id="totRow">
-        <div id="tMiWrap" hidden><b id="tMi">0</b><span>Miles (odometer)</span></div>
         <div><b id="tDrive">0.00</b><span>Driving (hrs)</span></div>
         <div><b id="tStore">0.00</b><span>At stores (hrs)</span></div>
         <div><b id="tStop">0.00</b><span>Other stops (hrs)</span></div>
       </div>
+      <div class="hint" id="payNote" style="margin-top:6px"></div>
     </div>
     <div class="card">
       <h2>Today</h2>
@@ -149,6 +160,21 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
+    </div>
+    <div class="card">
+      <h2>Home location</h2>
+      <div class="hint">Used to tell personal from work time and miles. Saved on this phone only and never sent anywhere.</div>
+      <div id="homeNow" style="margin:8px 0;font-weight:600"></div>
+      <div class="row"><button class="btn" id="homeSave">Save my current location as home</button></div>
+      <button class="btn sec" id="homeClear">Clear home</button>
+      <details style="margin-top:8px"><summary style="color:var(--road);font-weight:600">How personal and work time are worked out</summary><ul class="ul">
+        <li><b>Morning:</b> from leaving home to the first Publix store or fuel stop is personal time and miles. If that trip is longer than 30 minutes, only the first 30 minutes are personal; the rest is work.</li>
+        <li><b>During the day:</b> everything is work time and work miles.</li>
+        <li><b>Evening:</b> from leaving the last Publix store to arriving home is personal. If that trip is longer than 30 minutes, the first part is work and only the last 30 minutes are personal.</li>
+        <li>Time at home before you leave and after you get back is off the clock.</li>
+        <li>Mark a stop as a fuel stop by tapping ⛽ on it in Today's list.</li>
+        <li>Miles come from the odometer when your adapter is connected, otherwise from GPS (marked ≈).</li>
+      </ul></details>
     </div>
     <div class="card">
       <h2>Email</h2>
@@ -181,7 +207,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       </ul></details>
       <details><summary>What's never sent</summary><ul class="ul">
         <li>Your texts, dispatch calls, order numbers, or store numbers</li>
-        <li>Your GPS location, routes, times, hours, or odometer readings</li>
+        <li>Your GPS location, home location, routes, times, hours, mileage, or odometer readings</li>
         <li>Your name, P number, email, or anything you type</li>
         <li>Phone numbers, contacts, or any ID that identifies you or this phone</li>
       </ul></details>
@@ -295,19 +321,28 @@ function render(){
   const tr=S.tracker||{}, running=!!tr.running, cur=tr.cur||{};
   $("dayBtn").textContent=running?"End my day":"Start my day"; $("dayBtn").className="btn"+(running?" red":"");
   $("status").innerHTML = running ? `${label(cur)}<small>since ${tm(cur.start)} · day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
-  const tot={DRIVE:0,STORE:0,STOP:0};
-  (S.today||[]).forEach(g=>tot[g.type]=(tot[g.type]||0)+hu(g.end-g.start));
-  const dm=driveMiles(S.today||[]); $("tMiWrap").hidden=dm===null; if(dm!==null) $("tMi").textContent=fmtMi(dm);
+  const liveDay=!!(S.tracker&&S.tracker.running), cl=classify(S.today||[],liveDay), ps=paySum(cl.pieces), onc=cl.pieces.filter(p=>p.pay!=="OFF"), tot=totals(onc);
+  $("tWork").textContent=fh(ps.WORK); $("tPers").textContent=fh(ps.PERSONAL);
+  $("tWorkMi").textContent=ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.WORKmi):"—"; $("tPersMi").textContent=ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.PERSONALmi):"—";
   $("tDrive").textContent=fh(tot.DRIVE); $("tStore").textContent=fh(tot.STORE); $("tStop").textContent=fh(tot.STOP);
+  const hs=(S.settings||{}).home;
+  $("payNote").innerHTML=[...(hs?[]:[`<b>Save your home location</b> in <a href="#" onclick="showTab('settings');return false">Settings</a> so trips to and from home are split correctly.`]),...cl.notes.map(esc)].join("<br>");
   const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
-  $("segs").innerHTML = segs.length ? segs.map(g=>`<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b><div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`).join("")
+  $("segs").innerHTML = segs.length ? segs.map(g=>{
+    const parts=cl.pieces.filter(p=>p.seg.start===g.start);
+    const payLine=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
+    const fuelBtn=g.type==="STOP"?` <button class="fuel${g.tag==="FUEL"?" on":""}" data-fuel="${g.start}" data-on="${g.tag==="FUEL"?1:0}">⛽ ${g.tag==="FUEL"?"Fuel stop":"Fuel?"}</button>`:"";
+    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
+  $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
   renderMail();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
+  $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
+  $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
   if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
   $("autoEmail").checked=!!st.workEmail && st.autoEmail!==false; $("autoEmail").disabled=!st.workEmail;
   $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"250"; $("smsOn").checked=st.smsOn!==false;
@@ -326,7 +361,7 @@ function odoLine(g){
   const o=a||b; return o?`<div class="odo">Odometer ${fmtMi(o.mi)}</div>`:"";
 }
 function driveMiles(segs){ let m=0, any=false; segs.filter(g=>g.type==="DRIVE").forEach(g=>{ const a=odoAt(g.start), b=g.live?null:odoAt(g.end); if(a&&b&&b.mi>=a.mi){ m+=b.mi-a.mi; any=true; } }); return any?m:null; }
-function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return "Stopped"; }
+function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="HOME") return "At home"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return g.tag==="FUEL"?"Fuel stop":"Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
 $("selNew").onclick=()=>{ (S.dispatches||[]).filter(d=>!d.sent).forEach(d=>picked.add(d.order)); render(); };
@@ -336,26 +371,82 @@ $("dayBtn").onclick=()=>{ if(S.tracker&&S.tracker.running){ if(confirm("End your
 // ---- day log: shared by Copy, Email and the end-of-day email ----
 const dayName=d=>d.toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric",year:"numeric"});
 const dayKey=t=>{ const d=new Date(t); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
-function totals(segs){ const tot={DRIVE:0,STORE:0,STOP:0}; segs.forEach(g=>tot[g.type]+=hu(g.end-g.start)); tot.ALL=tot.DRIVE+tot.STORE+tot.STOP; return tot; }
-function dayText(segs,title){
-  const tot=totals(segs);
-  let t=`Time log – ${title}\nDriving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs · Total ${fh(tot.ALL)} hrs\n`;
-  const dmc=driveMiles(segs); if(dmc!==null) t+=`Miles by odometer: ${fmtMi(dmc)}\n`;
-  segs.forEach(g=>{ t+=`\n${tm(g.start)}–${g.live?"now":tm(g.end)}  ${label(g)} (${hm(g.end-g.start)} hrs)`;
-    const a=odoAt(g.start), b=g.live?null:odoAt(g.end);
-    if(g.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)} = ${fmtMi(b.mi-a.mi)} mi`; else if(g.type!=="DRIVE"&&(a||b)) t+=`  odo ${fmtMi((a||b).mi)}`; });
+function totals(segs){ const tot={DRIVE:0,STORE:0,STOP:0,HOME:0}; segs.forEach(g=>tot[g.type]=(tot[g.type]||0)+hu(g.end-g.start)); tot.ALL=tot.DRIVE+tot.STORE+tot.STOP; return tot; }
+// ---- personal vs work time and miles ----
+// Morning: leaving home → first Publix store or fuel stop is personal (if over 30 min, only the first 30 min).
+// Evening: leaving the last Publix store → home is personal (if over 30 min, only the last 30 min).
+// Everything between is work. Time at home before leaving / after getting back is off the clock.
+const COMMUTE_MS=30*60e3;
+function classify(segsIn, live){
+  const segs=segsIn.slice().sort((a,b)=>a.start-b.start), notes=[];
+  if(!segs.length) return {pieces:[],notes};
+  const dest=g=>g.type==="STORE"||(g.type==="STOP"&&g.tag==="FUEL");
+  const iDep=segs.findIndex(g=>g.type==="DRIVE");
+  let iFirst=-1; if(iDep>=0) for(let i=iDep;i<segs.length;i++) if(dest(segs[i])){ iFirst=i; break; }
+  let iLast=-1; for(let i=segs.length-1;i>=0;i--) if(segs[i].type==="STORE"){ iLast=i; break; }
+  const pers=[]; let offBefore=null, offAfter=null;
+  if(iDep>=0){
+    offBefore=segs[iDep].start;
+    const mS=segs[iDep].start, mE=iFirst>=0?segs[iFirst].start:segs[segs.length-1].end;
+    pers.push(mE-mS<=COMMUTE_MS?[mS,mE]:[mS,mS+COMMUTE_MS]);
+    if(iFirst<0) notes.push(live?"Heading to your first Publix store or fuel stop: personal for the first 30 minutes.":"No Publix store or fuel stop was recorded, so the morning rule used the whole trip.");
+  }
+  const iHome=iLast>=0?segs.findIndex((g,i)=>i>iLast&&g.type==="HOME"):-1;
+  if(iLast>=0 && iLast>=iFirst && (iHome>=0 || !live)){
+    const eS=segs[iLast].end, eE=iHome>=0?segs[iHome].start:segs[segs.length-1].end;
+    if(eE>eS){ pers.push(eE-eS<=COMMUTE_MS?[eS,eE]:[eE-COMMUTE_MS,eE]); offAfter=eE; if(iHome<0) notes.push("Trip home ends where you ended your day (no arrival home recorded)."); }
+  }
+  if(iDep<0 && segs.some(g=>g.type==="DRIVE")===false && !segs.some(g=>g.type==="STORE")) notes.push("No driving recorded yet.");
+  // cut points
+  const cuts=new Set(); pers.forEach(([a,b])=>{ cuts.add(a); cuts.add(b); }); if(offBefore) cuts.add(offBefore); if(offAfter) cuts.add(offAfter);
+  const pieces=[];
+  segs.forEach(g=>{
+    const pts=[g.start,...[...cuts].filter(t=>t>g.start&&t<g.end).sort((a,b)=>a-b),g.end];
+    for(let k=0;k<pts.length-1;k++){
+      const a=pts[k], b=pts[k+1], mid=(a+b)/2;
+      const pay=(offBefore&&mid<offBefore)||(offAfter&&mid>offAfter) ? "OFF" : pers.some(([x,y])=>mid>=x&&mid<y) ? "PERSONAL" : "WORK";
+      pieces.push(Object.assign({},g,{start:a,end:b,pay,seg:g,mi:pieceMiles(g,a,b)}));
+    }
+  });
+  return {pieces,notes};
+}
+function pieceMiles(g,a,b){
+  if(g.type!=="DRIVE") return null;
+  const oa=odoAt(a), ob=g.live&&b>=g.end?null:odoAt(b);
+  if(oa&&ob&&ob.mi>=oa.mi) return {v:ob.mi-oa.mi,src:"odometer"};
+  if(g.m) return {v:g.m/1609.344*((b-a)/Math.max(1,g.end-g.start)),src:"gps"};
+  return null;
+}
+function paySum(pieces){
+  const r={WORK:0,PERSONAL:0,OFF:0,WORKmi:0,PERSONALmi:0,anyMi:false,gps:false};
+  pieces.forEach(p=>{ r[p.pay]+=hu(p.end-p.start); if(p.mi&&p.pay!=="OFF"){ r[p.pay+"mi"]+=p.mi.v; r.anyMi=true; if(p.mi.src==="gps") r.gps=true; } });
+  return r;
+}
+const payName={WORK:"Work",PERSONAL:"Personal",OFF:"Off the clock"};
+const miTxt=(m)=>m?`${m.src==="gps"?"≈":""}${fmtMi(m.v)} mi`:"";
+function dayText(segs,title,live){
+  const {pieces,notes}=classify(segs,live), ps=paySum(pieces), on=pieces.filter(p=>p.pay!=="OFF"), tot=totals(on);
+  let t=`Time log – ${title}\nWork ${fh(ps.WORK)} hrs · Personal ${fh(ps.PERSONAL)} hrs\n`;
+  if(ps.anyMi) t+=`Work miles ${fmtMi(ps.WORKmi)} · Personal miles ${fmtMi(ps.PERSONALmi)}${ps.gps?" (≈ some by GPS)":""}\n`;
+  t+=`Driving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs\n`;
+  pieces.forEach(p=>{ t+=`\n${tm(p.start)}–${p.live&&p.end>=p.seg.end?"now":tm(p.end)}  ${payName[p.pay]}: ${label(p)}${p.tag==="FUEL"?" (fuel)":""} (${hm(p.end-p.start)} hrs)`;
+    if(p.mi) t+=`  ${miTxt(p.mi)}`;
+    const a=odoAt(p.start), b=odoAt(p.end); if(p.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)}`; });
+  if(notes.length) t+="\n\nNote: "+notes.join(" ");
   return t;
 }
 const csvq=v=>{ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-function dayCsv(segs){
-  const rows=[["Date","Start","End","Activity","Store","City","Hours","Odometer start","Odometer end","Miles"]];
-  segs.forEach(g=>{ const a=odoAt(g.start), b=g.live?null:odoAt(g.end), si=g.type==="STORE"?store(g.store):{};
-    const mi=g.type==="DRIVE"&&a&&b&&b.mi>=a.mi?fmtMi(b.mi-a.mi):"";
-    rows.push([new Date(g.start).toLocaleDateString(), tm(g.start), g.live?"in progress":tm(g.end), g.type==="DRIVE"?"Driving":g.type==="STORE"?"At store":"Stopped",
-      g.type==="STORE"?g.store:"", si.city||"", hm(g.end-g.start), a?a.mi.toFixed(1):"", b?b.mi.toFixed(1):"", mi]); });
-  const tot=totals(segs), dm=driveMiles(segs);
-  rows.push([]); rows.push(["Total","","","Driving","","",fh(tot.DRIVE)]); rows.push(["Total","","","At stores","","",fh(tot.STORE)]);
-  rows.push(["Total","","","Other stops","","",fh(tot.STOP)]); rows.push(["Total","","","All","","",fh(tot.ALL),"","",dm!==null?fmtMi(dm):""]);
+function dayCsv(segs,live){
+  const {pieces}=classify(segs,live), ps=paySum(pieces);
+  const rows=[["Date","Start","End","Time type","Activity","Store","City","Hours","Miles","Miles from","Odometer start","Odometer end"]];
+  pieces.forEach(p=>{ const si=p.type==="STORE"?store(p.store):{}, a=p.type==="DRIVE"?odoAt(p.start):null, b=p.type==="DRIVE"?odoAt(p.end):null;
+    rows.push([new Date(p.start).toLocaleDateString(), tm(p.start), p.live&&p.end>=p.seg.end?"in progress":tm(p.end), payName[p.pay],
+      p.type==="DRIVE"?"Driving":p.type==="STORE"?"At store":p.type==="HOME"?"At home":p.tag==="FUEL"?"Fuel stop":"Stopped",
+      p.type==="STORE"?p.store:"", si.city||"", hm(p.end-p.start), p.mi?p.mi.v.toFixed(1):"", p.mi?(p.mi.src==="gps"?"GPS (approx.)":"Odometer"):"", a?a.mi.toFixed(1):"", b?b.mi.toFixed(1):""]); });
+  rows.push([]);
+  rows.push(["Total","","","Work","","","",fh(ps.WORK),ps.anyMi?ps.WORKmi.toFixed(1):""]);
+  rows.push(["Total","","","Personal","","","",fh(ps.PERSONAL),ps.anyMi?ps.PERSONALmi.toFixed(1):""]);
+  rows.push(["Total","","","Off the clock","","","",fh(ps.OFF)]);
   return rows.map(r=>r.map(csvq).join(",")).join("\r\n")+"\r\n";
 }
 function allSegs(){ return (S.segments||[]).concat((S.today||[]).filter(g=>g.live)); }
@@ -366,10 +457,10 @@ function emailSegs(segs,title,key){
   const to=(S.settings||{}).workEmail||"";
   if(!validEmail(to)){ toast("Add your work email in Settings first."); showTab("settings"); $("workEmail").focus(); return; }
   if(!segs.length){ toast("Nothing recorded that day."); return; }
-  const tot=totals(segs);
-  const subject=`Time log – ${title} – ${fh(tot.ALL)} hrs`;
-  const body=dayText(segs,title)+"\n\nHours are rounded up to the next hundredth (0.01 hr = 36 sec). Spreadsheet attached.\nSent from Companion "+(S.version||"");
-  A.emailDay(to,subject,body,`Companion-time-${key}.csv`,dayCsv(segs)); track("email-day");
+  const live=segs.some(g=>g.live), ps=paySum(classify(segs,live).pieces);
+  const subject=`Time log – ${title} – Work ${fh(ps.WORK)} hrs, Personal ${fh(ps.PERSONAL)} hrs`;
+  const body=dayText(segs,title,live)+"\n\nHours are rounded up to the next hundredth (0.01 hr = 36 sec). Spreadsheet attached.\nSent from Companion "+(S.version||"");
+  A.emailDay(to,subject,body,`Companion-time-${key}.csv`,dayCsv(segs,live)); track("email-day");
 }
 window.onEmail=r=>{ if(r==="noOutlook"){ if(confirm("Outlook isn't installed on this phone. Your time log is only sent through Outlook. Open the Play Store to install it?")) A.open("market://details?id=com.microsoft.office.outlook"); } else if(r==="error") toast("Couldn't open Outlook."); };
 // Called by the app right after End my day, with the day's start and end times.
@@ -391,11 +482,14 @@ function renderMail(){
 $("mailBtn").onclick=()=>{ const k=$("mailDay").value; const [y,m,d]=k.split("-").map(Number); emailSegs(segsForDay(k),dayName(new Date(y,m-1,d)),k); };
 $("copyDay").onclick=()=>{
   const segs=(S.today||[]).slice().sort((a,b)=>a.start-b.start); if(!segs.length){ toast("Nothing recorded today."); return; }
-  A.copy(dayText(segs,new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"})));
+  A.copy(dayText(segs,new Date().toLocaleDateString(undefined,{weekday:"long",month:"numeric",day:"numeric"}),segs.some(g=>g.live)));
 };
 $("workEmail").onchange=e=>{ const v=e.target.value.trim();
   if(v && !validEmail(v)){ $("emailErr").textContent="Use your Publix work email (name@publix.com). Other addresses can't be used."; return; }
   $("emailErr").textContent=""; A.setSetting("workEmail",v); if(v) toast("Saved. Your time will be emailed to "+v+"."); refresh(); };
+$("homeSave").onclick=()=>{ if(!confirm("Save where this phone is right now as your home? Do this while you're at home.")) return; $("homeSave").disabled=true; $("homeSave").textContent="Finding your location…"; A.saveHome(); };
+window.onHome=r=>{ $("homeSave").disabled=false; if(r&&r.ok) toast(`Home saved (accurate to about ${r.acc} m).`); else toast("Couldn't get a GPS fix. Step outside or near a window and try again."); refresh(); };
+$("homeClear").onclick=()=>{ if(confirm("Clear your saved home location?")){ A.clearHome(); refresh(); } };
 $("autoEmail").onchange=e=>{ A.setSetting("autoEmail",e.target.checked?"1":"0"); refresh(); };
 $("edition").onchange=e=>A.setSetting("edition",e.target.value);
 $("radius").onchange=e=>A.setSetting("radius",e.target.value);
