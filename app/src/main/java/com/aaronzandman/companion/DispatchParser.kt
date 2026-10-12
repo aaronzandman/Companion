@@ -43,6 +43,11 @@ object DispatchParser {
     fun plannerLink(site: String, edition: String, rows: List<String>, uid: JSONObject? = null): String {
         val o = JSONObject().put("v", 1).put("a", 1).put("src", "companion").put("c", rows.joinToString("\n"))
         if (uid != null) o.put("u", uid)   // anonymous ID only, so the planner counts you as the same person
+        return plannerLinkJson(site, edition, o)
+    }
+
+    /** Packs any transfer payload into a Route Planner link (#sync=…), compressed the way the planner expects. */
+    fun plannerLinkJson(site: String, edition: String, o: JSONObject): String {
         val json = o.toString()
         val d = Deflater(Deflater.BEST_COMPRESSION, true)
         d.setInput(json.toByteArray(Charsets.UTF_8)); d.finish()

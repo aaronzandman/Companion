@@ -167,7 +167,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
         <div class="hint" id="importHint"></div>
-        <button class="btn sec" id="importAll">Import past dispatch texts</button></div>
+        <button class="btn sec" id="importAll">Import past dispatch texts</button>
+        <button class="btn sec" id="histSend">Add past calls to Route Planner History</button>
+        <div class="hint" id="histHint" style="margin-top:4px"></div></div>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
     </div>
@@ -210,7 +212,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <p class="hint" style="margin:0 0 6px">To see how many people use Companion, on what phones and in which areas, the app sends a small anonymous count when you open it (once a day) and when you use certain features. It's always on, and everything it sends is listed here.</p>
       <details><summary>What's sent</summary><ul class="ul">
         <li>App and version, and which Route Planner you picked (for example <i id="usageEd"></i>)</li>
-        <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent feedback</li>
+        <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent past calls to History, sent feedback</li>
         <li>Your anonymous ID (below), once a day, so you're counted as one person across days and devices</li>
         <li>Screen size, plus phone type and Android version (read from the app's built-in browser)</li>
         <li>General area (country and state), worked out by the counting service from your internet address. The address itself isn't stored.</li>
@@ -320,6 +322,8 @@ function render(){
   $("newDot").hidden=!fresh; $("newDot").textContent=fresh;
   const cutoff=Date.now()-14*864e5, recent=ds.filter(d=>d.receivedAt>=cutoff), past=ds.filter(d=>d.receivedAt<cutoff);
   $("importHint").textContent = S.importedAll ? `Past texts last imported ${when(S.importedAll)}. ${ds.length} call${ds.length===1?"":"s"} saved on this phone.` : "Reads every dispatch text already on this phone, so your past calls show up here.";
+  $("histSend").disabled=!past.length;
+  $("histHint").textContent = past.length ? `Sends the ${past.length} call${past.length===1?"":"s"} older than 14 days to your ${(S.settings||{}).edition||"VA"} Route Planner, where they show in History.`+(S.historySent?` Last sent ${when(S.historySent)}.`:"") : "Import past dispatch texts first.";
   $("pastCard").hidden=!past.length; $("pastCount").textContent=past.length?`(${past.length})`:"";
   renderPast(past);
   $("list").innerHTML = recent.length ? recent.map(d=>{ const si=store(d.store);
@@ -400,11 +404,18 @@ $("importAll").onclick=()=>{
   if(!confirm("Read every dispatch text already on this phone? Only texts in the dispatch format are kept, and nothing leaves your phone.")) return;
   $("importAll").disabled=true; $("importAll").textContent="Importing… this can take a moment"; A.importAll();
 };
+function sendHistory(){
+  const cutoff=Date.now()-14*864e5, n=(S.dispatches||[]).filter(d=>d.receivedAt<cutoff).length;
+  if(!n){ toast("No past calls yet. Import past dispatch texts first."); return; }
+  const sent=A.sendHistory(String(cutoff)); if(sent){ track("send-history"); toast(`Opening Route Planner with ${sent} past calls. Tap Add to History there.`); setTimeout(refresh,800); }
+}
+$("histSend").onclick=()=>{ if(confirm("Open Route Planner and add your past calls (older than 14 days) to its History? Calls already in History are skipped.")) sendHistory(); };
 window.onImportAll=(n,total)=>{
   $("importAll").disabled=false; $("importAll").textContent="Import past dispatch texts";
   if(n===-1){ A.askSms(); return; }
   if(n<0){ toast("Couldn't read your texts. Try again."); return; }
   toast(n?`Imported ${n} past call${n>1?"s":""}. ${total} saved in all. See them on the Texts tab.`:`No new past calls found. ${total} already saved.`); refresh();
+  if(n>0 && (S.dispatches||[]).some(d=>d.receivedAt<Date.now()-14*864e5) && confirm("Also add these past calls to Route Planner's History?")) sendHistory();
 };
 $("selNew").onclick=()=>{ const cutoff=Date.now()-14*864e5; (S.dispatches||[]).filter(d=>!d.sent&&d.receivedAt>=cutoff).forEach(d=>picked.add(d.order)); render(); };
 $("sendBtn").onclick=()=>{ if(!picked.size){ toast("Select calls first."); return; } track("send-calls"); A.send([...picked].join(",")); picked.clear(); setTimeout(refresh,600); };

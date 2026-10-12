@@ -159,6 +159,7 @@ class MainActivity : Activity() {
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
                     .put("sdk", Build.VERSION.SDK_INT))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
+                .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
                 .put("odo", Obd.log(c))
                 .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
                     .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
@@ -350,6 +351,21 @@ class MainActivity : Activity() {
             val uid = try { JSONObject(Store.get(this@MainActivity, "uid", "")).takeIf { Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(it.optString("i")) } } catch (_: Exception) { null }
             openUrl(DispatchParser.plannerLink(SITE, edition, rows, uid))
             Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) d.put("sent", true) else d }
+        }
+
+        /** Opens Route Planner with past calls (received before [before] ms) to add to its History. Returns how many. */
+        @JavascriptInterface fun sendHistory(before: String): Int {
+            val cut = before.toLongOrNull() ?: return 0
+            val all = Store.dispatches(this@MainActivity); val h = JSONArray()
+            for (i in 0 until all.length()) { val d = all.getJSONObject(i); val t = d.optLong("receivedAt")
+                if (t in 1 until cut) h.put(JSONArray().put(d.optString("order")).put(d.optString("store")).put(d.optInt("severity")).put(t / 1000).put(d.optString("description").take(160))) }
+            if (h.length() == 0) return 0
+            val o = JSONObject().put("v", 3).put("src", "companion").put("h", h)
+            try { val u = JSONObject(Store.get(this@MainActivity, "uid", "")); if (Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(u.optString("i"))) o.put("u", u) } catch (_: Exception) {}
+            val link = DispatchParser.plannerLinkJson(SITE, Store.get(this@MainActivity, "edition", "VA"), o)
+            runOnUiThread { openUrl(link) }
+            Store.put(this@MainActivity, "historySent", System.currentTimeMillis().toString())
+            return h.length()
         }
 
         @JavascriptInterface fun remove(orders: String) {
