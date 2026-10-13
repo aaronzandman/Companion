@@ -164,6 +164,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
+      <button class="btn sec" id="mpgTest" hidden>Test submit (debug)</button>
       <div class="hint" id="mpgNote" style="margin-top:6px"></div>
     </div>
   </section>
@@ -240,6 +241,10 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="row"><input type="text" id="uidIn" maxlength="9" placeholder="XXXX-XXXX" style="text-transform:uppercase;flex:1"><button class="btn sec" style="width:auto;margin:0" id="uidUse">Use this ID</button></div>
         <div class="hint" id="uidMsg"></div></div>
       <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
+    </div>
+    <div class="card">
+      <h2>Debug mode</h2>
+      <label class="set"><span><b>Debug mode</b><br><span class="hint">Records what happens in MPG (pages, request addresses, messages, and the trip fields Companion fills) into a Debug report you can copy. Never records your password, MPG's hidden security code, or other field values. Also shows Test submit on the Timer tab.</span></span><input type="checkbox" class="sw" id="debugOn"></label>
     </div>
     <div class="card">
       <h2>About</h2>
@@ -372,6 +377,7 @@ function render(){
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
+  $("debugOn").checked=!!st.debug; $("mpgTest").hidden=!st.debug;
   $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
   if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
@@ -609,6 +615,8 @@ function renderMpg(){
   $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : trips.some(t=>t.startOdo==null) ? "No odometer readings for some trips: MPG's own starting odometer will be used, plus the miles Companion measured." : trips.some(t=>t.gps) ? "≈ miles are from GPS (no odometer adapter reading)." : "";
 }
 $("mpgDay").onchange=renderMpg;
+$("mpgTest").onclick=()=>{ if(confirm("Debug test: MPG opens, you type a test trip, and Companion submits it after you confirm. It becomes a real trip in MPG that you'll need to delete. Continue?")){ track("mpg-test"); A.openMpgTest(); } };
+$("debugOn").onchange=e=>{ A.setSetting("debug",e.target.checked?"1":"0"); refresh(); };
 $("mpgBtn").onclick=()=>{
   const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};
   const trips=mpgTrips(segs,false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="(");

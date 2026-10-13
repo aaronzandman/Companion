@@ -171,6 +171,7 @@ class MainActivity : Activity() {
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
+                    .put("debug", Store.get(c, "debug", "0") == "1")
                     .put("home", Store.get(c, "home", "").let { if (it.isEmpty()) JSONObject.NULL else JSONObject(it) }))
                 .toString()
         }
@@ -374,6 +375,11 @@ class MainActivity : Activity() {
             startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("data", json))
         }
 
+        /** Debug: opens MPG to submit one test trip that you type in yourself. */
+        @JavascriptInterface fun openMpgTest() = runOnUiThread {
+            startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("test", true))
+        }
+
         @JavascriptInterface fun remove(orders: String) {
             val want = orders.split(",").map { it.trim() }.toSet()
             Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) null else d }
@@ -386,7 +392,7 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun setSetting(key: String, value: String) {
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail")) Store.put(this@MainActivity, key, value)
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "debug")) Store.put(this@MainActivity, key, value)
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
