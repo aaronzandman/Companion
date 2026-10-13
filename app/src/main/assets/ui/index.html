@@ -87,6 +87,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .oilbar{height:16px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:8px 0 6px}
 .oilbar i{display:block;height:100%;border-radius:999px;transition:width .3s}
 .oilrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.oilrow b{font:700 20px var(--sign)}
+.guide h3{font:700 16px/1.3 var(--sign);margin:14px 0 4px}.guide ol,.guide ul{margin:4px 0;padding-left:20px;font-size:14px}.guide li{margin:5px 0}
+.codebox{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0;padding:6px 8px;background:var(--soft);border:1px solid var(--line);border-radius:8px}.codebox code{font:13px ui-monospace,monospace;word-break:break-all;flex:1;min-width:0}
 .permrow{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
 .permrow label{display:flex;gap:6px;align-items:center;margin-top:4px}
 .trip{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
@@ -208,6 +210,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <h2>Ford connection</h2>
       <div class="hint">Reads the van's odometer from Ford (FordConnect) when the odometer adapter isn't connected. Your Ford developer Client ID and Secret, and your Ford sign-in, are kept on this phone only.</div>
       <div id="fordNow" style="margin:8px 0;font-weight:600"></div>
+      <button class="btn sec" id="fordGuideBtn">📘 Ford setup guide</button>
       <div id="fordCreds">
         <input type="text" id="fordId" placeholder="Client ID" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px">
         <input type="password" id="fordSecret" placeholder="Client Secret" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
@@ -320,6 +323,50 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="err" id="fbErr" role="alert"></div>
     <div class="row"><button type="button" class="btn sec" id="fbCancel">Cancel</button><button type="submit" class="btn" id="fbSend">Open in Outlook</button></div>
   </form>
+</div>
+<div id="fordGuide" class="dlg" role="dialog" aria-modal="true" aria-labelledby="fgTitle" hidden>
+  <div class="box guide">
+    <h2 id="fgTitle">Set up the Ford connection</h2>
+    <p class="hint" style="margin:0">About 15 minutes, once. Companion then reads the van's odometer and oil life from Ford.</p>
+    <h3>1. Link the van to your Ford account</h3>
+    <ol>
+      <li>Install the <b>Ford app</b> (formerly FordPass) and sign in, or create an account.</li>
+      <li>Tap <b>Add vehicle</b> and enter the van's <b>VIN</b> (driver-side dashboard through the windshield, or the door-jamb sticker).</li>
+      <li>Start the van and accept the prompt on its center screen (often <b>Allow access</b> or <b>Authorize</b>).</li>
+    </ol>
+    <p class="hint">If the Ford app won't accept the VIN or the prompt never appears, the van may be controlled by the company fleet system. Ask the fleet team.</p>
+    <h3>2. Create a Ford developer account</h3>
+    <ol>
+      <li>Open <a href="#" data-url="https://developer.ford.com/developer-na">developer.ford.com (North America)</a>.</li>
+      <li>Sign up, verify your email, and turn on two-step verification (Ford requires it).</li>
+      <li>Use only letters, numbers and spaces in your profile name.</li>
+    </ol>
+    <h3>3. Register an application</h3>
+    <ol>
+      <li>Create a new application. Name it something simple, like <b>Companion</b> (letters, numbers, spaces).</li>
+      <li>When asked how it's used, choose <b>personal use</b>.</li>
+      <li>Select <b>all vehicle types</b> and <b>all available data categories</b>.</li>
+      <li>For <b>Redirect URIs</b>, enter exactly:<div class="codebox"><code id="fgRedirect">http://localhost:8080/ford/callback</code><button class="btn sec" id="fgCopy" style="width:auto;margin:0;padding:6px 10px">Copy</button></div></li>
+      <li>Save. Ford shows a <b>Client ID</b> and a <b>Client Secret</b>. <b>Copy the Secret right away</b>; Ford shows it only once. Keep both private.</li>
+      <li>Wait up to <b>2 hours</b> before connecting; Ford takes a while to switch new applications on.</li>
+    </ol>
+    <h3>4. Connect Companion</h3>
+    <ol>
+      <li>Here in <b>Settings → Ford connection</b>, enter the Client ID and Client Secret and tap <b>Save Ford app details</b>. They stay on this phone only.</li>
+      <li>Tap <b>Connect Ford</b>, sign in with your Ford account, choose the van, and allow access.</li>
+      <li>Tap <b>Test Ford data</b>. Check that the odometer matches the van's dash.</li>
+      <li>Leave <b>Use Ford for the odometer</b> on. Companion asks Ford for the odometer while you drive (when the adapter isn't connected), and shows oil life on the Timer tab.</li>
+    </ol>
+    <h3>If something goes wrong</h3>
+    <ul>
+      <li><b>No vehicle to choose when connecting:</b> the van isn't linked to that Ford account yet (step 1).</li>
+      <li><b>Error right after connecting:</b> wait the 2 hours from step 3, then try again. Check the Redirect URI matches exactly.</li>
+      <li><b>"Wait a minute":</b> Ford limits how often it can be asked. Try again shortly.</li>
+      <li><b>Odometer looks wrong:</b> send feedback with a screenshot of Test Ford data and the dash.</li>
+      <li><b>Start over:</b> tap <b>Disconnect</b>, then <b>Connect Ford</b> again.</li>
+    </ul>
+    <div class="row" style="margin-top:12px"><button class="btn" id="fgClose">Got it</button></div>
+  </div>
 </div>
 <div id="permDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="permTitle" hidden>
   <div class="box">
@@ -703,6 +750,11 @@ $("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-
 $("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSecret").value.trim();
   if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
   A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
+$("fordGuideBtn").onclick=()=>{ $("fordGuide").hidden=false; $("fordGuide").querySelector(".box").scrollTop=0; };
+$("fgClose").onclick=()=>$("fordGuide").hidden=true;
+$("fordGuide").onclick=e=>{ if(e.target.id==="fordGuide") $("fordGuide").hidden=true; };
+$("fgCopy").onclick=()=>A.copy($("fgRedirect").textContent);
+$("fordGuide").querySelectorAll("[data-url]").forEach(a=>a.onclick=e=>{ e.preventDefault(); A.open(a.dataset.url); });
 $("fordConnectBtn").onclick=()=>A.fordConnect();
 $("fordOffBtn").onclick=()=>{ if(confirm("Disconnect Ford? Companion forgets your Ford sign-in (your Client ID and Secret stay saved).")){ A.fordDisconnect(); refresh(); } };
 $("fordUse").onchange=e=>{ A.fordUse(e.target.checked); refresh(); };
@@ -736,7 +788,7 @@ function renderOil(){
 }
 $("tierBtn").onclick=()=>{ const c=$("tierCode").value; if(!c.trim()) return;
   const lvl=A.unlock(c); $("tierCode").value="";
-  if(lvl===3) toast("Companion++ unlocked."); else if(lvl===2) toast("Companion+ unlocked."); else toast("That code isn't right.");
+  if(lvl===3){ toast("Companion++ unlocked."); setTimeout(()=>{ showTab("settings"); $("fordGuide").hidden=false; },400); } else if(lvl===2) toast("Companion+ unlocked."); else toast("That code isn't right.");
   refresh(); };
 $("tierLock").onclick=()=>{ if(confirm("Go back to Companion? The odometer adapter and Ford features turn off (your saved settings stay).")){ A.lockTier(); refresh(); } };
 $("oilChanged").onclick=()=>{
