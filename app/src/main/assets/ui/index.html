@@ -186,6 +186,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>My Route Planner</b><br><span class="hint">Calls you send open in this planner.</span></span>
         <select id="edition"><option value="VA">Virginia</option><option value="AL">Alabama</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="KY">Kentucky</option><option value="NC">North Carolina</option><option value="SC">South Carolina</option><option value="TN">Tennessee</option><option value="ALL">Company-wide</option></select></label>
       <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
+      <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">When a dispatch text arrives, the notification offers Reroute now or Keep my route (with a suggestion) and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
         <div class="hint" id="importHint"></div>
@@ -363,6 +364,7 @@ function render(){
   } else w.hidden=true;
   const lw=$("locWarn");
   if(!p.location){ lw.hidden=false; lw.innerHTML=`<b>Location is needed for the timer.</b> It's used only while your day is running, to tell driving from store stops.<button class="btn" onclick="A.askLocation()">Allow location</button>`; }
+  else if(p.battery===false){ lw.hidden=false; lw.innerHTML=`<b>Let Companion run in the background.</b> Otherwise Android's battery saver can pause the timer and miss dispatch texts. Companion already saves battery: full GPS only while you're driving.`+(p.maker==="samsung"?`<br><span class="hint">On Samsung also: Settings → Battery → Background usage limits → Never sleeping apps → add Companion.</span>`:"")+`<button class="btn" onclick="A.askBattery()">Allow background use</button>`; }
   else if(!p.notify){ lw.hidden=false; lw.innerHTML=`<b>Allow notifications</b> to see when the timer is on and when new dispatch texts arrive.<button class="btn" onclick="A.askNotify()">Allow notifications</button>`; }
   else lw.hidden=true;
 
@@ -428,6 +430,7 @@ function render(){
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
   if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
   $("autoEmail").checked=!!st.workEmail && st.autoEmail!==false; $("autoEmail").disabled=!st.workEmail;
+  $("autoPlanner").checked=!!st.autoPlanner;
   $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"250"; $("smsOn").checked=st.smsOn!==false;
   const ob=S.obd||{}, lastO=(S.odo||[]).slice(-1)[0];
   $("obdNow").innerHTML = ob.addr ? `Adapter: ${esc(ob.name||ob.addr)}${lastO?` · last reading ${fmtMi(lastO.mi)} mi, ${when(lastO.t)}`:""}` : "No adapter chosen yet.";
@@ -753,6 +756,7 @@ $("homeClear").onclick=()=>{ if(confirm("Clear your saved home location?")){ A.c
 $("autoEmail").onchange=e=>{ A.setSetting("autoEmail",e.target.checked?"1":"0"); refresh(); };
 $("edition").onchange=e=>A.setSetting("edition",e.target.value);
 $("radius").onchange=e=>A.setSetting("radius",e.target.value);
+$("autoPlanner").onchange=e=>{ A.setSetting("autoPlanner",e.target.checked?"1":"0"); if(e.target.checked) toast("New calls will offer Reroute now or Keep my route in the notification."); };
 $("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
 $("sender").onchange=e=>A.setSetting("senderFilter",e.target.value.trim());
 $("appSet").onclick=()=>A.openAppSettings();

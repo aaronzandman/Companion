@@ -86,11 +86,40 @@ class MainActivity : Activity() {
         web.addJavascriptInterface(Bridge(), "Android")
         setContentView(web)
         web.loadUrl("file:///android_asset/ui/index.html" + (intent?.getStringExtra("tab")?.let { "#$it" } ?: ""))
+        handlePlanner(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("tab")?.let { web.evaluateJavascript("showTab('$it')", null) }
+        handlePlanner(intent)
+    }
+
+    /** From a new-call notification: send those calls to Route Planner with "reroute" or "keep". */
+    private fun handlePlanner(i: Intent?) {
+        val mode = i?.getStringExtra("planner") ?: return
+        val orders = i.getStringExtra("orders")?.split(",")?.map { it.trim() }?.toSet() ?: return
+        i.removeExtra("planner")
+        androidx.core.app.NotificationManagerCompat.from(this).cancel(i.getIntExtra("notif", 0))
+        openPlanner(orders, if (mode == "keep") "keep" else "reroute")
+        if (Tracker.isRunning(this)) moveTaskToBack(true)
+    }
+
+    /** Opens Route Planner with these calls; [rt] tells it to re-plan from here or keep the current order. */
+    fun openPlanner(want: Set<String>, rt: String?) {
+        val rows = ArrayList<String>()
+        val all = Store.dispatches(this)
+        for (k in 0 until all.length()) { val d = all.getJSONObject(k); if (d.optString("order") in want) rows.add(DispatchParser.plannerRow(d)) }
+        if (rows.isEmpty()) return
+        val edition = Store.get(this, "edition", "VA")
+        val uid = try { JSONObject(Store.get(this, "uid", "")).takeIf { Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(it.optString("i")) } } catch (_: Exception) { null }
+        val extra = JSONObject()
+        if (rt != null) {
+            extra.put("rt", rt)
+            Tracker.state(this).optJSONObject("last")?.takeIf { System.currentTimeMillis() - it.optLong("t") < 10 * 60_000L }?.let { extra.put("gps", JSONObject().put("lat", it.optDouble("lat")).put("lng", it.optDouble("lng"))) }
+        }
+        openUrl(DispatchParser.plannerLink(SITE, edition, rows, uid, extra))
+        Store.updateDispatches(this) { d -> if (d.optString("order") in want) d.put("sent", true) else d }
     }
 
     override fun onResume() { super.onResume(); if (::web.isInitialized) web.evaluateJavascript("window.refresh&&refresh()", null) }
@@ -167,7 +196,9 @@ class MainActivity : Activity() {
                     .put("smsAsked", Store.get(c, "smsAsked", "") == "1")
                     .put("location", granted(Manifest.permission.ACCESS_FINE_LOCATION))
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
-                    .put("sdk", Build.VERSION.SDK_INT))
+                    .put("sdk", Build.VERSION.SDK_INT)
+                    .put("battery", getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true)
+                    .put("maker", Build.MANUFACTURER.lowercase()))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
                 .put("mpgDone", try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() })
@@ -179,6 +210,7 @@ class MainActivity : Activity() {
                     .put("radius", Store.get(c, "radius", "250"))
                     .put("senderFilter", Store.get(c, "senderFilter", ""))
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
+                    .put("autoPlanner", Store.get(c, "autoPlanner", "0") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
@@ -209,6 +241,13 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun askNotify() = runOnUiThread {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
+        }
+
+        /** Asks Android to let Companion keep running in the background (battery optimization off). */
+        @SuppressLint("BatteryLife")
+        @JavascriptInterface fun askBattery() = runOnUiThread {
+            try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) }
+            catch (_: Exception) { try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {} }
         }
 
         @JavascriptInterface fun openAppSettings() = runOnUiThread {
@@ -361,15 +400,7 @@ class MainActivity : Activity() {
 
         /** Opens the Route Planner with these calls (order numbers, comma-separated); they're added to the list there. */
         @JavascriptInterface fun send(orders: String) = runOnUiThread {
-            val want = orders.split(",").map { it.trim() }.toSet()
-            val rows = ArrayList<String>()
-            val all = Store.dispatches(this@MainActivity)
-            for (i in 0 until all.length()) { val d = all.getJSONObject(i); if (d.optString("order") in want) rows.add(DispatchParser.plannerRow(d)) }
-            if (rows.isEmpty()) return@runOnUiThread
-            val edition = Store.get(this@MainActivity, "edition", "VA")
-            val uid = try { JSONObject(Store.get(this@MainActivity, "uid", "")).takeIf { Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(it.optString("i")) } } catch (_: Exception) { null }
-            openUrl(DispatchParser.plannerLink(SITE, edition, rows, uid))
-            Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) d.put("sent", true) else d }
+            openPlanner(orders.split(",").map { it.trim() }.toSet(), null)
         }
 
         /** Opens Route Planner with past calls (received before [before] ms) to add to its History. Returns how many. */
@@ -451,7 +482,7 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail")) Store.put(this@MainActivity, key, value)
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner")) Store.put(this@MainActivity, key, value)
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
