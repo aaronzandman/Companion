@@ -219,6 +219,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       </div>
       <button class="btn" id="fordConnectBtn">Connect Ford</button>
       <div class="row"><button class="btn sec" id="fordTestBtn">Test Ford data</button><button class="btn sec" id="fordOffBtn">Disconnect</button></div>
+      <button class="btn sec" id="fordRawBtn">View raw Ford data</button>
       <label class="set"><span><b>Use Ford for the odometer</b><br><span class="hint">When the adapter isn't connected, ask Ford for the odometer while you drive (about every 2 minutes).</span></span><input type="checkbox" class="sw" id="fordUse"></label>
       <pre id="fordOut" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
     </div>
@@ -371,6 +372,14 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <button class="btn sec" id="tierClose">Close</button>
   </div>
 </div>
+<div id="fordRawDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="frTitle" hidden>
+  <div class="box">
+    <h2 id="frTitle">Raw Ford data</h2>
+    <p class="hint" style="margin:0">Exactly what Ford sent, unedited. It includes the van's VIN and location; take care where you share it.</p>
+    <pre id="frText" style="white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px;font:11px/1.4 ui-monospace,monospace;max-height:60vh;overflow:auto;margin:8px 0"></pre>
+    <div class="row"><button class="btn sec" id="frCopy">Copy</button><button class="btn" id="frClose">Close</button></div>
+  </div>
+</div>
 <div id="permDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="permTitle" hidden>
   <div class="box">
     <h2 id="permTitle">A few things to turn on</h2>
@@ -481,7 +490,7 @@ function render(){
   $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');$('odoIn').focus();return false">Open Settings</a>` : "";
   const fd=st.ford||{};
   $("fordNow").textContent = fd.connected ? `Connected${fd.vehicle?" to "+fd.vehicle:""}.` : fd.configured ? `Ford app details saved (Client ID …${fd.idEnd}). Tap Connect Ford to sign in.` : "Not set up. Enter the Client ID and Secret from Ford's developer portal.";
-  $("fordConnectBtn").hidden=!fd.configured||fd.connected; $("fordTestBtn").disabled=!fd.connected; $("fordOffBtn").disabled=!fd.connected;
+  $("fordConnectBtn").hidden=!fd.configured||fd.connected; $("fordTestBtn").disabled=!fd.connected; $("fordRawBtn").disabled=!fd.connected; $("fordOffBtn").disabled=!fd.connected;
   $("fordCreds").hidden=!!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
   const tier=S.tier||1;
   $("obdCard").hidden=tier<2; $("fordCard").hidden=tier<3;
@@ -751,6 +760,10 @@ $("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-
 $("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSecret").value.trim();
   if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
   A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
+$("fordRawBtn").onclick=()=>{ $("fordRawBtn").disabled=true; $("fordRawBtn").textContent="Asking Ford…"; A.fordRaw(); };
+window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };
+$("frCopy").onclick=()=>A.copy($("frText").textContent);
+$("frClose").onclick=()=>$("fordRawDlg").hidden=true;
 $("fordGuideBtn").onclick=()=>{ $("fordGuide").hidden=false; $("fordGuide").querySelector(".box").scrollTop=0; };
 $("fgClose").onclick=()=>$("fordGuide").hidden=true;
 $("fordGuide").onclick=e=>{ if(e.target.id==="fordGuide") $("fordGuide").hidden=true; };

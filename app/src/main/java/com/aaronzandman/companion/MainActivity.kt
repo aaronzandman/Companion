@@ -447,6 +447,20 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION") startActivityForResult(Intent(this@MainActivity, FordActivity::class.java), REQ_FORD)
         }
         @JavascriptInterface fun fordDisconnect() { Ford.disconnect(this@MainActivity) }
+        /** Everything Ford returns (vehicle info and all readings), unedited; calls onFordRaw(result). */
+        @JavascriptInterface fun fordRaw() {
+            Thread {
+                val c = this@MainActivity
+                val out = JSONObject().put("fetched", java.text.DateFormat.getDateTimeInstance().format(java.util.Date()))
+                for (path in listOf("garage", "telemetry")) {
+                    val (code, text) = Ford.get(c, path)
+                    val body: Any = try { if (text.trim().startsWith("[")) JSONArray(text) else JSONObject(text) } catch (_: Exception) { text }
+                    out.put(path, JSONObject().put("status", code).put("data", body))
+                    if (path == "telemetry" && body is JSONObject) Ford.saveExtras(c, body)
+                }
+                runOnUiThread { web.evaluateJavascript("onFordRaw(${JSONObject.quote(out.toString(2))})", null) }
+            }.start()
+        }
         /** Quietly gets the latest odometer and oil life from Ford (at most every 30 minutes), then refreshes the screen. */
         @JavascriptInterface fun fordRefresh() {
             val c = this@MainActivity
