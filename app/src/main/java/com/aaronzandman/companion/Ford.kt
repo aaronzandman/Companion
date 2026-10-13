@@ -21,7 +21,7 @@ object Ford {
 
     fun configured(c: Context) = Store.get(c, "fordId", "").isNotBlank() && Store.get(c, "fordSecret", "").isNotBlank()
     fun connected(c: Context) = Store.get(c, "fordRefresh", "").isNotBlank()
-    fun useForOdometer(c: Context) = connected(c) && Store.get(c, "fordOdo", "1") == "1"
+    fun useForOdometer(c: Context) = Tier.ford(c) && connected(c) && Store.get(c, "fordOdo", "1") == "1"
 
     fun saveCredentials(c: Context, id: String, secret: String) {
         if (id.isNotBlank()) Store.put(c, "fordId", id.trim())

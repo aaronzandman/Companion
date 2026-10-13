@@ -27,6 +27,7 @@ button{font:inherit}
 .btn{border:0;border-radius:10px;padding:12px 16px;font-weight:700;background:var(--road);color:#fff;width:100%;margin-top:8px}
 .btn.sec{background:transparent;color:var(--road);border:1.5px solid var(--road)}
 .btn.red{background:var(--red)}
+[hidden]{display:none!important}
 .row{display:flex;gap:8px}.row .btn{flex:1}
 .warn{background:var(--warn);color:var(--warnink);border-radius:10px;padding:12px;margin-bottom:12px;font-size:14px}
 .warn ol{margin:6px 0;padding-left:20px}
@@ -175,7 +176,6 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
-      <button class="btn sec" id="mpgTest" hidden>Test submit (debug)</button>
       <div class="hint" id="mpgNote" style="margin-top:6px"></div>
     </div>
   </section>
@@ -237,7 +237,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="hint" id="emailErr" style="color:var(--red)"></div>
       <label class="set"><span><b>Email my day when I end it</b><br><span class="hint">Tapping End my day opens Outlook with the day's log ready to send.</span></span><input type="checkbox" class="sw" id="autoEmail"></label>
     </div>
-    <div class="card">
+    <div class="card" id="obdCard">
       <h2>Vehicle odometer</h2>
       <div class="hint">Connect your OBD adapter (Vgate vLinker FD+) to log the exact odometer at every stop. Pair it once in Android's Bluetooth settings if it uses regular Bluetooth.</div>
       <div id="obdNow" style="margin:8px 0;font-weight:600"></div>
@@ -273,9 +273,12 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="uidMsg"></div></div>
       <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
     </div>
-    <div class="card">
-      <h2>Debug mode</h2>
-      <label class="set"><span><b>Debug mode</b><br><span class="hint">Records what happens in MPG (pages, request addresses, messages, and the trip fields Companion fills) into a Debug report you can copy. Never records your password, MPG's hidden security code, or other field values. Also shows Test submit on the Timer tab.</span></span><input type="checkbox" class="sw" id="debugOn"></label>
+    <div class="card" id="tierCard">
+      <h2>Features</h2>
+      <div id="tierNow" style="font-weight:600"></div>
+      <div class="hint" id="tierHint"></div>
+      <div class="row" style="align-items:center;margin-top:8px" id="tierRow"><input type="password" id="tierCode" placeholder="Unlock code" autocomplete="off" style="flex:1;min-width:0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"><button class="btn" style="width:auto;margin:0" id="tierBtn">Unlock</button></div>
+      <button class="btn sec" id="tierLock" hidden>Go back to Companion</button>
     </div>
     <div class="card">
       <h2>About</h2>
@@ -416,7 +419,11 @@ function render(){
   $("fordNow").textContent = fd.connected ? `Connected${fd.vehicle?" to "+fd.vehicle:""}.` : fd.configured ? `Ford app details saved (Client ID …${fd.idEnd}). Tap Connect Ford to sign in.` : "Not set up. Enter the Client ID and Secret from Ford's developer portal.";
   $("fordConnectBtn").hidden=!fd.configured||fd.connected; $("fordTestBtn").disabled=!fd.connected; $("fordOffBtn").disabled=!fd.connected;
   $("fordCreds").hidden=!!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
-  $("debugOn").checked=!!st.debug; $("mpgTest").hidden=!st.debug;
+  const tier=S.tier||1;
+  $("obdCard").hidden=tier<2; $("fordCard").hidden=tier<3;
+  $("tierNow").textContent=S.tierName||"Companion";
+  $("tierHint").textContent = tier>=3 ? "Everything is unlocked: GPS mileage, the odometer adapter, and the Ford connection with oil life." : tier===2 ? "GPS mileage and the odometer adapter. Enter the ++ code to add the Ford connection and oil life." : "GPS mileage and the odometer you enter. Enter an unlock code to add the odometer adapter (+) or the adapter plus Ford connection and oil life (++).";
+  $("tierRow").hidden=tier>=3; $("tierLock").hidden=tier<2;
   $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
   if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
@@ -674,7 +681,6 @@ function renderMpg(){
   $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : "MPG fills in the date and starting odometer. Companion fills in the description, ending odometer and Personal." + (trips.some(t=>!t.adapter)?" Without the adapter, ending odometer = MPG's start + the miles Companion measured (≈ numbers here are estimates).":"");
 }
 $("mpgDay").onchange=renderMpg;
-$("mpgTest").onclick=()=>{ if(confirm("Debug test: MPG opens, you type a test trip, and Companion submits it after you confirm. It becomes a real trip in MPG that you'll need to delete. Continue?")){ track("mpg-test"); A.openMpgTest(); } };
 $("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-9]/g,""),10);
   if(!(v>0&&v<2000000)){ toast("Enter the odometer reading in miles, for example 123456."); return; }
   const est=odoEstimate(Date.now()); if(est&&Math.abs(est.v-v)>500&&!confirm(`That's ${Math.round(Math.abs(est.v-v)).toLocaleString()} miles from Companion's estimate (${Math.round(est.v).toLocaleString()}). Save ${v.toLocaleString()} anyway?`)) return;
@@ -690,7 +696,6 @@ window.onFordTest=r=>{ $("fordTestBtn").disabled=false; $("fordTestBtn").textCon
   if(r.code===429){ o.textContent="Ford says to wait a minute between requests. Try again shortly."; return; }
   if(!(r.code>=200&&r.code<300)){ o.textContent=`Ford returned an error (${r.code}).\n${r.error||""}`; return; }
   o.textContent=(r.miles!=null?`Odometer: ${Math.round(r.miles).toLocaleString()} miles (Ford last updated it ${r.odoTime?new Date(r.odoTime).toLocaleString():"at an unknown time"})\n`:"Ford didn't include the odometer.\n")+`Ford sent ${ (r.keys||[]).length } kinds of data: ${(r.keys||[]).join(", ")}`; refresh(); };
-$("debugOn").onchange=e=>{ A.setSetting("debug",e.target.checked?"1":"0"); refresh(); };
 $("mpgBtn").onclick=()=>{
   const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};
   const trips=mpgTrips(segs,false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="(");
@@ -702,7 +707,7 @@ $("mpgBtn").onclick=()=>{
 // Until a change is marked, Ford's own oil-life percentage is used.
 function renderOil(){
   const fd=(S.settings||{}).ford||{}, last=S.oilLast, iv=S.oilInterval||5000, now=odoEstimate(Date.now()), ford=fd.oil;
-  const show=!!(fd.connected||last); $("oilCard").hidden=!show; if(!show) return;
+  const show=(S.tier||1)>=3&&!!(fd.connected||last); $("oilCard").hidden=!show; if(!show) return;
   let pct=null, main="", sub="";
   if(last&&now){ const left=Math.round(iv-(now.v-last.mi)); pct=Math.max(0,Math.min(100,left/iv*100));
     main=left>0?`${left.toLocaleString()} mi left`:`${Math.abs(left).toLocaleString()} mi overdue`; sub=`changed at ${last.mi.toLocaleString()} · every ${iv.toLocaleString()} mi`; }
@@ -714,6 +719,11 @@ function renderOil(){
   $("oilSub").textContent=sub;
   $("oilFord").textContent = ford&&typeof ford.pct==="number" ? `Ford's oil-life monitor: ${Math.round(ford.pct)}% (${when(ford.t)})` : fd.connected ? "Ford hasn't sent oil life yet." : "";
 }
+$("tierBtn").onclick=()=>{ const c=$("tierCode").value; if(!c.trim()) return;
+  const lvl=A.unlock(c); $("tierCode").value="";
+  if(lvl===3) toast("Companion++ unlocked."); else if(lvl===2) toast("Companion+ unlocked."); else toast("That code isn't right.");
+  refresh(); };
+$("tierLock").onclick=()=>{ if(confirm("Go back to Companion? The odometer adapter and Ford features turn off (your saved settings stay).")){ A.lockTier(); refresh(); } };
 $("oilChanged").onclick=()=>{
   const est=odoEstimate(Date.now()), guess=est?Math.round(est.v):"";
   const v=prompt("Odometer at the oil change (miles):", guess); if(v===null) return;

@@ -156,6 +156,7 @@ class MainActivity : Activity() {
             val smsOk = granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.RECEIVE_SMS)
             return JSONObject()
                 .put("version", BuildConfig.VERSION_NAME)
+                .put("tier", Tier.level(c)).put("tierName", Tier.name(Tier.level(c)))
                 .put("dispatches", Store.dispatches(c))
                 .put("today", Tracker.today(c))
                 .put("segments", Store.segments(c))
@@ -180,7 +181,6 @@ class MainActivity : Activity() {
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
-                    .put("debug", Store.get(c, "debug", "0") == "1")
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
                         .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
@@ -392,22 +392,21 @@ class MainActivity : Activity() {
             startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("data", json))
         }
 
-        /** Debug: opens MPG to submit one test trip that you type in yourself. */
-        @JavascriptInterface fun openMpgTest() = runOnUiThread {
-            startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("test", true))
-        }
+        /** Unlocks Companion+ or Companion++ with a code. Returns the new level, or 0 if the code is wrong. */
+        @JavascriptInterface fun unlock(code: String): Int = Tier.unlock(this@MainActivity, code)
+        @JavascriptInterface fun lockTier() { Tier.reset(this@MainActivity) }
 
         // ---- Ford (FordConnect Query) ----
         @JavascriptInterface fun fordSave(id: String, secret: String) { Ford.saveCredentials(this@MainActivity, id, secret) }
         @JavascriptInterface fun fordConnect() = runOnUiThread {
-            if (!Ford.configured(this@MainActivity)) return@runOnUiThread
+            if (!Tier.ford(this@MainActivity) || !Ford.configured(this@MainActivity)) return@runOnUiThread
             @Suppress("DEPRECATION") startActivityForResult(Intent(this@MainActivity, FordActivity::class.java), REQ_FORD)
         }
         @JavascriptInterface fun fordDisconnect() { Ford.disconnect(this@MainActivity) }
         /** Quietly gets the latest odometer and oil life from Ford (at most every 30 minutes), then refreshes the screen. */
         @JavascriptInterface fun fordRefresh() {
             val c = this@MainActivity
-            if (!Ford.connected(c) || System.currentTimeMillis() - (Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L) < 30 * 60_000L) return
+            if (!Tier.ford(c) || !Ford.connected(c) || System.currentTimeMillis() - (Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L) < 30 * 60_000L) return
             Store.put(c, "fordFetch", System.currentTimeMillis().toString())
             Thread { Ford.readMiles(c)?.let { (mi, t) -> Obd.record(c, t, mi) }; runOnUiThread { web.evaluateJavascript("refresh()", null) } }.start()
         }
@@ -452,7 +451,7 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "debug")) Store.put(this@MainActivity, key, value)
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail")) Store.put(this@MainActivity, key, value)
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
@@ -521,7 +520,7 @@ class MainActivity : Activity() {
         val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
         val obdType = Store.get(c, "obdType", "auto")
         val lines = listOf(
-            "App: Companion ${BuildConfig.VERSION_NAME}",
+            "App: ${Tier.name(Tier.level(c))} ${BuildConfig.VERSION_NAME}",
             "Phone: ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · WebView $wv",
             "Language / time zone: ${java.util.Locale.getDefault().toLanguageTag()} / ${java.util.TimeZone.getDefault().id}",
             "Permissions: texts ${yn(granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.RECEIVE_SMS))} · location ${yn(granted(Manifest.permission.ACCESS_FINE_LOCATION))} · notifications ${yn(Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))} · Bluetooth ${yn(btOk())}",

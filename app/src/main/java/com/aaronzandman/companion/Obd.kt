@@ -168,5 +168,5 @@ object Obd {
     }
 
     fun log(ctx: Context): JSONArray = JSONArray(Store.get(ctx, "odoLog", "[]"))
-    fun enabled(ctx: Context) = Store.get(ctx, "obdAddr", "").isNotEmpty()
+    fun enabled(ctx: Context) = Tier.obd(ctx) && Store.get(ctx, "obdAddr", "").isNotEmpty()
 }
