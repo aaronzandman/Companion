@@ -197,7 +197,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="importHint"></div>
         <button class="btn sec" id="importAll">Import past dispatch texts</button>
         <button class="btn sec" id="histSend">Add past calls to Route Planner History</button>
-        <div class="hint" id="histHint" style="margin-top:4px"></div></div>
+        <div class="hint" id="histHint" style="margin-top:4px"></div>
+        <button class="btn sec" id="expCalls" style="margin-top:8px">Export all calls for desktop</button>
+        <div class="hint" id="expHint" style="margin-top:4px"></div></div>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
     </div>
@@ -446,6 +448,8 @@ function render(){
   const cutoff=Date.now()-14*864e5, recent=ds.filter(d=>d.receivedAt>=cutoff), past=ds.filter(d=>d.receivedAt<cutoff);
   $("importHint").textContent = S.importedAll ? `Past texts last imported ${when(S.importedAll)}. ${ds.length} call${ds.length===1?"":"s"} saved on this phone.` : "Reads every dispatch text already on this phone, so your past calls show up here.";
   $("histSend").disabled=!past.length;
+  const nAll=(S.dispatches||[]).length, ws=(S.settings||{}).workEmail||"";
+  $("expHint").textContent = nAll ? `Emails all ${nAll} call${nAll===1?"":"s"} to ${ws||"your work email"} as one file through Outlook. On your computer, open Route Planner, then History → Import Companion file. New calls you load from SAP (IW49) are added to History automatically after that.`+(S.callsExported?` Last exported ${when(S.callsExported)}.`:"") : "Import past dispatch texts first.";
   $("histHint").textContent = past.length ? `Sends the ${past.length} call${past.length===1?"":"s"} older than 14 days to your ${(S.settings||{}).edition||"VA"} Route Planner, where they show in History.`+(S.historySent?` Last sent ${when(S.historySent)}.`:"") : "Import past dispatch texts first.";
   $("pastCard").hidden=!past.length; $("pastCount").textContent=past.length?`(${past.length})`:"";
   renderPast(past);
@@ -544,6 +548,15 @@ function sendHistory(){
   if(!n){ toast("No past calls yet. Import past dispatch texts first."); return; }
   const sent=A.sendHistory(String(cutoff)); if(sent){ track("send-history"); toast(`Opening Route Planner with ${sent} past calls. Tap Add to History there.`); setTimeout(refresh,800); }
 }
+$("expCalls").onclick=()=>{
+  const n=(S.dispatches||[]).length; if(!n){ toast("No calls yet. Import past dispatch texts first."); return; }
+  const to=(S.settings||{}).workEmail||"";
+  if(!to){ toast("Add My work email first (Settings, below)."); const el=$("workEmail"); if(el){ el.scrollIntoView({block:"center"}); el.focus(); } return; }
+  const r=A.exportCalls(to);
+  if(r===-1) toast("Your work email must end in @publix.com.");
+  else if(r>0){ track("export-calls"); toast(`Opening Outlook with ${r} call${r===1?"":"s"} attached. Send it to yourself, then import the file on your computer.`); setTimeout(refresh,800); }
+  else toast("Couldn't make the export file. Try again.");
+};
 $("histSend").onclick=()=>{ if(confirm("Open Route Planner and add your past calls (older than 14 days) to its History? Calls already in History are skipped.")) sendHistory(); };
 window.onImportAll=(n,total)=>{
   $("importAll").disabled=false; $("importAll").textContent="Import past dispatch texts";

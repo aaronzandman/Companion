@@ -214,6 +214,7 @@ class MainActivity : Activity() {
                     .put("maker", Build.MANUFACTURER.lowercase()))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
+                .put("callsExported", Store.get(c, "callsExported", "").toLongOrNull() ?: 0L)
                 .put("mpgDone", try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() })
                 .put("odo", Obd.log(c))
                 .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
@@ -431,6 +432,32 @@ class MainActivity : Activity() {
             return h.length()
         }
 
+        /** Emails every saved dispatch-text call (Outlook, work address only) as a file the desktop Route Planner
+         *  imports into History (History → Import Companion file). Returns how many calls, or -1 for a bad address. */
+        @JavascriptInterface fun exportCalls(to: String): Int {
+            val addr = to.trim(); if (!EMAIL.matches(addr)) return -1
+            val all = Store.dispatches(this@MainActivity); val h = JSONArray(); var first = Long.MAX_VALUE; var last = 0L
+            for (i in 0 until all.length()) { val d = all.getJSONObject(i); val t = d.optLong("receivedAt"); if (t <= 0) continue
+                first = minOf(first, t); last = maxOf(last, t)
+                h.put(JSONArray().put(d.optString("order")).put(d.optString("store")).put(d.optInt("severity")).put(t / 1000).put(d.optString("description").take(160))) }
+            if (h.length() == 0) return 0
+            val o = JSONObject().put("v", 3).put("src", "companion").put("h", h)
+            try { val u = JSONObject(Store.get(this@MainActivity, "uid", "")); if (Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(u.optString("i"))) o.put("u", u) } catch (_: Exception) {}
+            val df = java.text.SimpleDateFormat("M/d/yyyy", java.util.Locale.US); val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            val range = "${df.format(java.util.Date(first))} to ${df.format(java.util.Date(last))}"
+            val text = "Companion past calls for Route Planner: ${h.length()} calls, $range.\r\n" +
+                "On your computer: save this file, open Route Planner, choose History, then Import Companion file, and pick this file.\r\n" +
+                "Calls already in History are skipped. Nothing here is uploaded anywhere.\r\n\r\nROUTE2-TRANSFER:" + DispatchParser.pack(o) + "\r\n"
+            val f = try {
+                val dir = File(cacheDir, "exports").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                File(dir, "Companion-calls-$stamp.txt").apply { writeText(text) }
+            } catch (_: Exception) { return 0 }
+            runOnUiThread { outlook(addr, "Companion calls for Route Planner ($stamp)",
+                "Attached: ${h.length()} calls from dispatch texts ($range).\n\nOn your computer: save the attachment, open Route Planner, choose History, then Import Companion file.", f) }
+            Store.put(this@MainActivity, "callsExported", System.currentTimeMillis().toString())
+            return h.length()
+        }
+
         /** Opens the MPG screen that fills in each trip for you to check and Save. */
         @JavascriptInterface fun openMpg(json: String) = runOnUiThread {
             startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("data", json))
@@ -551,7 +578,7 @@ class MainActivity : Activity() {
                 putExtra(Intent.EXTRA_SUBJECT, subject)
                 putExtra(Intent.EXTRA_TEXT, body)
                 if (attach != null) {
-                    type = "text/csv"
+                    type = if (attach.name.endsWith(".txt")) "text/plain" else "text/csv"
                     val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", attach)
                     putExtra(Intent.EXTRA_STREAM, uri)
                     clipData = ClipData.newRawUri(attach.name, uri)

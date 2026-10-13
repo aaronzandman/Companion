@@ -49,14 +49,18 @@ object DispatchParser {
 
     /** Packs any transfer payload into a Route Planner link (#sync=…), compressed the way the planner expects. */
     fun plannerLinkJson(site: String, edition: String, o: JSONObject): String {
+        val id = "c" + java.lang.Long.toString(System.currentTimeMillis() % 1_679_616L, 36)
+        return "${site}planners/$edition.html#sync=$id.1.1.${pack(o)}"
+    }
+
+    /** The planner's packed transfer text: "1" + compressed JSON in URL-safe Base64 (what follows ROUTE2-TRANSFER: in a file). */
+    fun pack(o: JSONObject): String {
         val json = o.toString()
         val d = Deflater(Deflater.BEST_COMPRESSION, true)
         d.setInput(json.toByteArray(Charsets.UTF_8)); d.finish()
         val out = ByteArrayOutputStream(); val buf = ByteArray(4096)
         while (!d.finished()) { val n = d.deflate(buf); out.write(buf, 0, n) }
         d.end()
-        val b64 = Base64.encodeToString(out.toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-        val id = "c" + java.lang.Long.toString(System.currentTimeMillis() % 1_679_616L, 36)
-        return "${site}planners/$edition.html#sync=$id.1.1.1$b64"
+        return "1" + Base64.encodeToString(out.toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     }
 }
