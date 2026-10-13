@@ -3,7 +3,6 @@ name: Build Companion
 on:
   push:
     branches: [main]
-    paths-ignore: ["capture/**", ".github/workflows/capture.yml"]
   workflow_dispatch:
 
 permissions:
