@@ -69,6 +69,26 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .empty{text-align:center;color:var(--muted);padding:18px 8px}
 .dlg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .dlg[hidden]{display:none}
+.dlg.full{align-items:stretch}
+.dlg.full .box{max-width:640px;max-height:none;height:100%;border-radius:0;padding-bottom:40px}
+.loghead{display:flex;justify-content:space-between;align-items:center;gap:8px;position:sticky;top:-16px;background:var(--panel);padding:8px 0;z-index:2}
+#logTot{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+#logTot div{padding:8px 4px}
+#logTot b{font-size:17px}
+#logTot span{font-size:11px}
+.ovbox{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
+.ovline{display:flex;align-items:center;gap:8px;margin-top:8px}
+.ovline span{flex:1;font-weight:600}
+.ovline input{width:120px;min-width:0}
+.lnk{background:none;border:0;color:var(--road);font-weight:600;padding:4px;cursor:pointer}
+.lent i{background:var(--stop)}.lent i.DRIVE{background:var(--drive)}.lent i.STORE{background:var(--store)}.lent i.HOME{background:#B07A2A}
+.lent{border-top:1px solid var(--line);padding:10px 0}
+.lent .top{display:flex;gap:8px;align-items:flex-start}
+.lent .top>div{flex:1;min-width:0}
+.lform{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;margin-top:8px;background:var(--soft);border-radius:10px;padding:10px}
+.lform input,.lform select{min-width:0;width:100%}
+.lform .acts{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+.lform .acts .btn{width:auto;flex:1;margin:0}
 .dlg .box{background:var(--panel);color:var(--ink);width:100%;max-width:520px;max-height:94vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
 .dlg h2{margin:0 0 6px;font:700 22px/1.2 var(--sign)}
 .dlg .lbl{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
@@ -141,6 +161,10 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="card">
       <div class="status" id="status">Not tracking</div>
       <button class="btn" id="dayBtn">Start my day</button>
+      <div class="row" id="ovRow" style="gap:8px;margin-top:8px" hidden>
+        <button class="btn sec" id="ovStart" style="margin:0">▶ Start work time now</button>
+        <button class="btn sec" id="ovEnd" style="margin:0">■ End work time now</button>
+      </div>
       <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
       <div class="tot" id="payRow">
         <div class="work"><b id="tWork">0.00</b><span>Work hrs</span></div>
@@ -166,6 +190,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="card">
       <h2>Today</h2>
       <div id="segs"></div>
+      <button class="btn" id="logOpen">View and edit log</button>
       <button class="btn sec" id="copyDay">Copy today's log</button>
     </div>
     <div class="card" id="mailCard">
@@ -391,6 +416,22 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="row"><button class="btn sec" id="frCopy">Copy</button><button class="btn" id="frClose">Close</button></div>
   </div>
 </div>
+<div id="logDlg" class="dlg full" role="dialog" aria-modal="true" aria-labelledby="logTitle" hidden>
+  <div class="box">
+    <div class="loghead"><h2 id="logTitle">Day log</h2><button class="btn sec" id="logClose" style="width:auto;margin:0">Close</button></div>
+    <label class="set"><span><b>Day</b></span><select id="logDay"></select></label>
+    <div class="tot" id="logTot"></div>
+    <div class="ovbox">
+      <b>Work time</b><div class="hint">Set when work started or ended to override the 30-minute rules. Leave empty to use the rules.</div>
+      <div class="ovline"><span>Work started</span><input type="time" id="ovWs"><button class="lnk" id="ovWsClr">Use rule</button></div>
+      <div class="ovline"><span>Work ended</span><input type="time" id="ovWe"><button class="lnk" id="ovWeClr">Use rule</button></div>
+    </div>
+    <div class="hint" id="logNotes" style="margin:8px 0"></div>
+    <div id="logList"></div>
+    <button class="btn sec" id="logAdd">+ Add an entry</button>
+    <div class="hint" style="margin-top:6px">Edits change this phone's log and everything made from it (totals, email, MPG trips). Entries you changed are marked ✎.</div>
+  </div>
+</div>
 <div id="permDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="permTitle" hidden>
   <div class="box">
     <h2 id="permTitle">A few things to turn on</h2>
@@ -490,6 +531,13 @@ function render(){
     const fuelBtn=g.type==="STOP"?` <button class="fuel${g.tag==="FUEL"?" on":""}" data-fuel="${g.start}" data-on="${g.tag==="FUEL"?1:0}">⛽ ${g.tag==="FUEL"?"Fuel stop":"Fuel?"}</button>`:"";
     return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
+  { // override buttons: only while the day runs; each shows until used (change or undo it in the log window)
+    const ov=(S.overrides||{})[dayKey(Date.now())]||{}, anyWork=cl.pieces.some(p=>p.pay==="WORK");
+    $("ovRow").hidden=!running; $("ovStart").hidden=!!ov.ws||anyWork;   // only useful before work time has begun
+    $("ovEnd").hidden=!!ov.we||!anyWork;
+    if($("ovStart").hidden&&$("ovEnd").hidden) $("ovRow").hidden=true;
+  }
+  if(!$("logDlg").hidden) renderLog();
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
@@ -595,16 +643,27 @@ function classify(segsIn, live){
   let iFirst=-1; if(iDep>=0) for(let i=iDep;i<segs.length;i++) if(dest(segs[i])){ iFirst=i; break; }
   let iLast=-1; for(let i=segs.length-1;i>=0;i--) if(segs[i].type==="STORE"){ iLast=i; break; }
   const pers=[]; let offBefore=null, offAfter=null;
+  // Your overrides for this day: work started (ws) / ended (we) at a set time, instead of the 30-minute rules.
+  const ov=(S.overrides||{})[dayKey(segs[0].start)]||{}, ws=+ov.ws||0, we=(+ov.we||0)>ws?+ov.we:0;
   if(iDep>=0){
     offBefore=segs[iDep].start;
     const mS=segs[iDep].start, mE=iFirst>=0?segs[iFirst].start:segs[segs.length-1].end;
-    pers.push(mE-mS<=COMMUTE_MS?[mS,mE]:[mS,mS+COMMUTE_MS]);
-    if(iFirst<0) notes.push(live?"Heading to your first Publix store or fuel stop: personal for the first 30 minutes.":"No Publix store or fuel stop was recorded, so the morning rule used the whole trip.");
-  }
-  const iHome=iLast>=0?segs.findIndex((g,i)=>i>iLast&&g.type==="HOME"):-1;
-  if(iLast>=0 && iLast>=iFirst && (iHome>=0 || !live)){
-    const eS=segs[iLast].end, eE=iHome>=0?segs[iHome].start:segs[segs.length-1].end;
-    if(eE>eS){ pers.push(eE-eS<=COMMUTE_MS?[eS,eE]:[eE-COMMUTE_MS,eE]); offAfter=eE; if(iHome<0) notes.push("Trip home ends where you ended your day (no arrival home recorded)."); }
+    if(ws){ if(ws>mS) pers.push([mS,ws]); else offBefore=ws; notes.push(`Work time started at ${tm(ws)} (your override).`); }
+    else {
+      pers.push(mE-mS<=COMMUTE_MS?[mS,mE]:[mS,mS+COMMUTE_MS]);
+      if(iFirst<0) notes.push(live?"Heading to your first Publix store or fuel stop: personal for the first 30 minutes.":"No Publix store or fuel stop was recorded, so the morning rule used the whole trip.");
+    }
+  } else if(ws){ offBefore=ws; notes.push(`Work time started at ${tm(ws)} (your override).`); }
+  if(we){
+    const h=segs.find(g=>g.type==="HOME"&&g.start>=we-60e3), eE=h?h.start:(live?Infinity:segs[segs.length-1].end);
+    if(eE>we){ pers.push([we,eE]); if(eE!==Infinity) offAfter=eE; } else offAfter=we;
+    notes.push(`Work time ended at ${tm(we)} (your override).`);
+  } else {
+    const iHome=iLast>=0?segs.findIndex((g,i)=>i>iLast&&g.type==="HOME"):-1;
+    if(iLast>=0 && iLast>=iFirst && (iHome>=0 || !live)){
+      const eS=segs[iLast].end, eE=iHome>=0?segs[iHome].start:segs[segs.length-1].end;
+      if(eE>eS){ pers.push(eE-eS<=COMMUTE_MS?[eS,eE]:[eE-COMMUTE_MS,eE]); offAfter=eE; if(iHome<0) notes.push("Trip home ends where you ended your day (no arrival home recorded)."); }
+    }
   }
   if(iDep<0 && segs.some(g=>g.type==="DRIVE")===false && !segs.some(g=>g.type==="STORE")) notes.push("No driving recorded yet.");
   // cut points
@@ -748,7 +807,7 @@ function mpgTrips(segs,live){
   const {pieces}=classify(segs,live), ps=pieces.slice().sort((a,b)=>a.start-b.start);   // time at home is "off the clock" but still marks arriving home
   const trips=[]; let from=segs.length&&segs.slice().sort((a,b)=>a.start-b.start)[0].type==="HOME"?"Home":(S.settings||{}).home?"Home":"Start", leg=[], cur=null;
   const closeLeg=to=>{ if(cur){ leg.push(cur); cur=null; }
-    leg.forEach((t,i)=>{ t.from=from; t.to=to; t.part=leg.length<2?"":t.personal?(i===0?"first 30 min, personal":"last 30 min, personal"):(i===0?"before the last 30 min":"after the first 30 min"); trips.push(t); }); leg=[]; };
+    leg.forEach((t,i)=>{ t.from=from; t.to=to; t.part=leg.length<2?"":t.personal?"personal part":"work part"; trips.push(t); }); leg=[]; };
   ps.forEach(p=>{
     const moving=p.pay!=="OFF"&&(p.type==="DRIVE"||(p.type==="STOP"&&p.tag!=="FUEL"&&(cur||leg.length)));
     if(moving){
@@ -794,6 +853,61 @@ $("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSec
   if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
   A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
 $("fordRawBtn").onclick=()=>{ $("fordRawBtn").disabled=true; $("fordRawBtn").textContent="Asking Ford…"; A.fordRaw(); };
+// ---- log window: view and edit a day's entries and work-time overrides ----
+let LOG_DAY=null, LOG_EDIT=null;
+const hhmm=t=>{ const d=new Date(t); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+const atDay=(k,v)=>{ if(!v) return 0; const [y,m,d]=k.split("-").map(Number), [h,mi]=v.split(":").map(Number); return new Date(y,m-1,d,h,mi).getTime(); };
+function openLog(k){ LOG_DAY=k||dayKey(Date.now()); LOG_EDIT=null; $("logDlg").hidden=false; renderLog(); track("log-open"); }
+function renderLog(){
+  const days=[...new Set(allSegs().map(g=>dayKey(g.start)))].sort().reverse(); if(!days.includes(LOG_DAY)) days.unshift(LOG_DAY);
+  const sel=$("logDay"); if(document.activeElement!==sel) sel.innerHTML=days.slice(0,60).map(k=>`<option value="${k}"${k===LOG_DAY?" selected":""}>${esc(dayName(new Date(k+"T12:00:00")))}</option>`).join("");
+  const segs=segsForDay(LOG_DAY), live=segs.some(g=>g.live), cl=classify(segs,live), ps=paySum(cl.pieces);
+  $("logTot").innerHTML=`<div class="work"><b>${fh(ps.WORK)}</b><span>Work hrs</span></div><div class="pers"><b>${fh(ps.PERSONAL)}</b><span>Personal hrs</span></div><div class="work"><b>${ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.WORKmi):"—"}</b><span>Work miles</span></div><div class="pers"><b>${ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.PERSONALmi):"—"}</b><span>Personal miles</span></div>`;
+  const ov=(S.overrides||{})[LOG_DAY]||{};
+  if(document.activeElement!==$("ovWs")) $("ovWs").value=ov.ws?hhmm(ov.ws):""; if(document.activeElement!==$("ovWe")) $("ovWe").value=ov.we?hhmm(ov.we):"";
+  $("ovWsClr").hidden=!ov.ws; $("ovWeClr").hidden=!ov.we;
+  $("logNotes").textContent=cl.notes.join(" ");
+  const form=(g)=>`<div class="lform" data-form="${g?g.start:"new"}">
+      <span>Type</span><select data-f="type">${[["DRIVE","Driving"],["STORE","At a store"],["STOP","Stopped"],["FUEL","Fuel stop"],["HOME","At home"]].map(([v,t])=>`<option value="${v}"${g&&(g.type===v&&!(v==="STOP"&&g.tag==="FUEL")||v==="FUEL"&&g.type==="STOP"&&g.tag==="FUEL")?" selected":""}>${t}</option>`).join("")}</select>
+      <span>Store #</span><input data-f="store" inputmode="numeric" value="${g&&g.store?esc(g.store):""}" placeholder="Only for At a store">
+      <span>Start</span><input type="time" data-f="start" value="${g?hhmm(g.start):""}">
+      <span>End</span><input type="time" data-f="end" value="${g?hhmm(g.end):""}">
+      <div class="acts"><button class="btn" data-save="${g?g.start:"new"}">Save</button>${g?`<button class="btn sec" data-delx="${g.start}">Delete</button>`:""}<button class="btn sec" data-cancel>Cancel</button></div></div>`;
+  $("logList").innerHTML=(LOG_EDIT==="new"?form(null):"")+(segs.length?segs.slice().reverse().map(g=>{
+    const parts=cl.pieces.filter(p=>p.seg.start===g.start);
+    const pay=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
+    return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual?' <span class="hint">✎</span>':""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
+      ${g.live?'<span class="hint">in progress</span>':`<button class="lnk" data-edit="${g.start}">Edit</button>`}</div>${LOG_EDIT===String(g.start)?form(g):""}</div>`; }).join("")
+    : `<div class="empty">Nothing recorded this day.</div>`);
+  $("logList").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{ LOG_EDIT=b.dataset.edit; renderLog(); });
+  $("logList").querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{ LOG_EDIT=null; renderLog(); });
+  $("logList").querySelectorAll("[data-delx]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.delx); LOG_EDIT=null; refresh(); renderLog(); } });
+  $("logList").querySelectorAll("[data-save]").forEach(b=>b.onclick=()=>{
+    const f=b.closest(".lform"), v=n=>f.querySelector(`[data-f="${n}"]`).value.trim(), type=v("type");
+    const st=atDay(LOG_DAY,v("start")), en=atDay(LOG_DAY,v("end"));
+    if(!st||!en){ toast("Enter a start and end time."); return; }
+    if(en<=st){ toast("The end time must be after the start time."); return; }
+    if(type==="STORE"&&!/^\d{2,5}$/.test(v("store"))){ toast("Enter the store number."); return; }
+    const j=JSON.stringify({type:type==="FUEL"?"STOP":type,fuel:type==="FUEL",store:v("store"),start:st,end:en});
+    const ok=b.dataset.save==="new"?A.addSegment(j):A.editSegment(b.dataset.save,j);
+    if(!ok){ toast("Couldn't save that. Times can't be in the future."); return; }
+    const over=segsForDay(LOG_DAY).filter(g=>String(g.start)!==b.dataset.save&&g.start<en&&g.end>st&&!(g.start===st&&g.end===en));
+    track(b.dataset.save==="new"?"log-add":"log-edit"); LOG_EDIT=null; refresh(); renderLog();
+    toast(over.length?"Saved. Heads up: it overlaps another entry; adjust that one too.":"Saved.");
+  });
+}
+function saveOv(){ const ws=atDay(LOG_DAY,$("ovWs").value), we=atDay(LOG_DAY,$("ovWe").value);
+  if(ws&&we&&we<=ws){ toast("Work must end after it starts."); return; }
+  A.setOverride(LOG_DAY,JSON.stringify({ws,we})); track("override-edit"); refresh(); renderLog(); }
+$("ovWs").onchange=saveOv; $("ovWe").onchange=saveOv;
+$("ovWsClr").onclick=()=>{ $("ovWs").value=""; saveOv(); }; $("ovWeClr").onclick=()=>{ $("ovWe").value=""; saveOv(); };
+$("logDay").onchange=e=>{ LOG_DAY=e.target.value; LOG_EDIT=null; renderLog(); };
+$("logAdd").onclick=()=>{ LOG_EDIT="new"; renderLog(); $("logDlg").querySelector(".box").scrollTop=0; };
+$("logClose").onclick=()=>{ $("logDlg").hidden=true; };
+$("logOpen").onclick=()=>openLog();
+function setOvNow(k){ const day=dayKey(Date.now()), ov=Object.assign({},(S.overrides||{})[day]||{}); ov[k]=Date.now(); A.setOverride(day,JSON.stringify(ov)); refresh(); }
+$("ovStart").onclick=()=>{ if(confirm("Start work time now? This skips the 30-minute morning rule for today. You can change it in View and edit log.")){ setOvNow("ws"); track("override-start"); toast("Work time started."); } };
+$("ovEnd").onclick=()=>{ if(confirm("End work time now? From now until you get home is personal, skipping the 30-minute evening rule. You can change it in View and edit log.")){ setOvNow("we"); track("override-end"); toast("Work time ended. The drive home is personal."); } };
 // ---- automatic start (Bluetooth) and end (home) ----
 function renderAuto(){
   const st=S.settings||{}, p=S.perm||{}, sel=$("autoDev");

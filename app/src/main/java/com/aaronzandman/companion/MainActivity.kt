@@ -219,6 +219,7 @@ class MainActivity : Activity() {
                 .put("dispatches", Store.dispatches(c))
                 .put("today", Tracker.today(c))
                 .put("segments", Store.segments(c))
+                .put("overrides", try { JSONObject(Store.get(c, "overrides", "{}")) } catch (_: Exception) { JSONObject() })
                 .put("tracker", Tracker.state(c))
                 .put("stores", Stores.all(c).size)
                 .put("perm", JSONObject()
@@ -434,6 +435,21 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun clearHome() { Store.put(this@MainActivity, "home", "") }
+
+        @JavascriptInterface fun editSegment(start: String, json: String): Boolean =
+            try { Tracker.editSegment(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
+        @JavascriptInterface fun addSegment(json: String): Boolean = try { Tracker.addSegment(this@MainActivity, JSONObject(json)) } catch (_: Exception) { false }
+        /** Work-time overrides for one day: {"ws": work started (ms), "we": work ended (ms)}; empty clears. */
+        @JavascriptInterface fun setOverride(day: String, json: String) {
+            if (!Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(day)) return
+            val all = try { JSONObject(Store.get(this@MainActivity, "overrides", "{}")) } catch (_: Exception) { JSONObject() }
+            val o = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
+            val clean = JSONObject(); listOf("ws", "we").forEach { k -> o.optLong(k, 0L).takeIf { it > 0 }?.let { clean.put(k, it) } }
+            if (clean.length() == 0) all.remove(day) else all.put(day, clean)
+            val cut = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(System.currentTimeMillis() - 400L * 86_400_000L))
+            all.keys().asSequence().toList().forEach { if (it < cut) all.remove(it) }
+            Store.put(this@MainActivity, "overrides", all.toString())
+        }
 
         @JavascriptInterface fun deleteSegment(start: String) { Tracker.deleteSegment(this@MainActivity, start.toLong()) }
 

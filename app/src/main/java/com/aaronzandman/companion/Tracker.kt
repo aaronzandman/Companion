@@ -178,6 +178,33 @@ object Tracker {
         val s = state(c); s.optJSONObject("cur")?.let { if (it.optLong("start") == start) { if (tag.isEmpty()) it.remove("tag") else it.put("tag", tag); save(c, s) } }
     }
 
+    private val TYPES = setOf("DRIVE", "STORE", "STOP", "HOME")
+    private fun sorted(a: JSONArray): JSONArray {
+        val l = (0 until a.length()).map { a.getJSONObject(it) }.sortedBy { it.optLong("start") }; val o = JSONArray(); l.forEach { o.put(it) }; return o
+    }
+    /** Applies your edits (type, store, start/end time, fuel tag) to a finished entry. False if the values don't make sense. */
+    fun editSegment(c: Context, origStart: Long, j: JSONObject): Boolean = synchronized(lock) {
+        val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")
+        if (en <= st || type !in TYPES || en > System.currentTimeMillis() + 60_000L) return@synchronized false
+        val segs = Store.segments(c); var found = false
+        for (i in 0 until segs.length()) { val g = segs.getJSONObject(i); if (g.optLong("start") != origStart) continue
+            found = true
+            g.put("start", st).put("end", en).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+            if (type == "STOP" && j.optBoolean("fuel")) g.put("tag", "FUEL") else g.remove("tag")
+            g.put("edited", System.currentTimeMillis()) }
+        if (found) Store.saveSegments(c, sorted(segs))
+        found
+    }
+    /** Adds an entry you missed (for example a stop before you started the timer). */
+    fun addSegment(c: Context, j: JSONObject): Boolean = synchronized(lock) {
+        val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")
+        if (en <= st || type !in TYPES || en > System.currentTimeMillis() + 60_000L) return@synchronized false
+        val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+            .put("start", st).put("end", en).put("m", 0).put("manual", true)
+        if (type == "STOP" && j.optBoolean("fuel")) g.put("tag", "FUEL")
+        val segs = Store.segments(c); segs.put(g); Store.saveSegments(c, sorted(segs)); true
+    }
+
     fun deleteSegment(c: Context, start: Long) = synchronized(lock) {
         val segs = Store.segments(c); val out = JSONArray()
         for (i in 0 until segs.length()) { val g = segs.getJSONObject(i); if (g.optLong("start") != start) out.put(g) }
