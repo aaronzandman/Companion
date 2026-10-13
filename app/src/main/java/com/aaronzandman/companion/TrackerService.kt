@@ -35,8 +35,12 @@ class TrackerService : Service(), LocationListener {
         if (intent?.action == ACTION_STOP || !Tracker.isRunning(this)) { stopEverything(); return START_NOT_STICKY }
         Notify.channels(this)
         val n = Notify.tracker(this, Tracker.state(this).optJSONObject("cur")?.let { Tracker.describe(this, it) } ?: "Starting…")
-        ServiceCompat.startForeground(this, Notify.ID_TRACKER, n,
-            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        try {
+            ServiceCompat.startForeground(this, Notify.ID_TRACKER, n,
+                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        } catch (e: Exception) {   // Android didn't allow starting from the background: ask with a notification instead
+            Tracker.cancelStart(this); Notify.autoDay(this, "Your day didn't start", "Tap to start your day.", true); stopSelf(); return START_NOT_STICKY
+        }
         if (lm == null) {
             val ok = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (!ok) { stopEverything(); return START_NOT_STICKY }
@@ -54,6 +58,7 @@ class TrackerService : Service(), LocationListener {
         val now = System.currentTimeMillis()
         val before = Tracker.state(this).optLong("boundary", 0)
         val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now)
+        if (AutoDay.checkHome(this)) { lastText = ""; stopEverything(); return }   // arrived home: day over
         val st = Tracker.state(this)
         adjustPower(loc, st, now)
         // Odometer: read at each possible arrival/departure, and every 2 minutes while driving.

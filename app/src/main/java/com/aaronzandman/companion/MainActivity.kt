@@ -31,6 +31,7 @@ import java.net.URL
 /** One screen: a local web page (assets/ui) that talks to Android through the "Android" bridge below. */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    private val bridge by lazy { Bridge() }
     /** Screenshots picked for the next feedback report (copied into the app's cache). */
     private val shots = ArrayList<File>()
 
@@ -83,14 +84,32 @@ class MainActivity : Activity() {
                 return true
             }
         }
-        web.addJavascriptInterface(Bridge(), "Android")
+        web.addJavascriptInterface(bridge, "Android")
         setContentView(web)
         web.loadUrl("file:///android_asset/ui/index.html" + (intent?.getStringExtra("tab")?.let { "#$it" } ?: ""))
         handlePlanner(intent)
+        handleAuto(intent)
+    }
+
+    /** Starts the day, or picks today's day back up if it ended automatically at home (e.g. lunch at home). */
+    private fun doStartDay() {
+        if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) { bridge.askLocation(); return }
+        if (!Tracker.isRunning(this)) { if (Tracker.resumable(this)) Tracker.resumeDay(this) else Tracker.startDay(this) }
+        TrackerService.start(this)
+        web.evaluateJavascript("refresh()", null)
+    }
+
+    /** From the automatic start/end notifications. */
+    private fun handleAuto(i: Intent?) {
+        if (i == null) return
+        if (i.getBooleanExtra("startDay", false)) { i.removeExtra("startDay"); getSystemService(android.app.NotificationManager::class.java).cancel(Notify.ID_AUTODAY); web.postDelayed({ doStartDay() }, 600) }
+        val st = i.getLongExtra("dayStart", 0L); val en = i.getLongExtra("dayEnd", 0L)
+        if (st > 0 && en > 0) { i.removeExtra("dayStart"); i.removeExtra("dayEnd"); web.postDelayed({ web.evaluateJavascript("window.onDayEnded&&onDayEnded($st,$en)", null) }, 900) }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        handleAuto(intent)
         intent.getStringExtra("tab")?.let { web.evaluateJavascript("showTab('$it')", null) }
         handlePlanner(intent)
         if (intent.getBooleanExtra("install", false)) { intent.removeExtra("install"); install() }
@@ -210,7 +229,8 @@ class MainActivity : Activity() {
                     .put("sdk", Build.VERSION.SDK_INT)
                     .put("battery", getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true)
                     .put("install", Updater.canInstall(c))
-                    .put("bt", btOk()).put("btNeeded", Obd.enabled(c))
+                    .put("bt", btOk()).put("btNeeded", Obd.enabled(c) || AutoDay.startEnabled(c))
+                    .put("bgLoc", AutoDay.backgroundOk(c))
                     .put("maker", Build.MANUFACTURER.lowercase()))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
@@ -227,6 +247,9 @@ class MainActivity : Activity() {
                     .put("autoPlanner", Store.get(c, "autoPlanner", "0") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
+                    .put("autoStartBt", Store.get(c, "autoStartBt", "0") == "1")
+                    .put("autoStartAddr", Store.get(c, "autoStartAddr", "")).put("autoStartName", Store.get(c, "autoStartName", ""))
+                    .put("autoEndHome", Store.get(c, "autoEndHome", "0") == "1")
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
                         .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
@@ -251,6 +274,13 @@ class MainActivity : Activity() {
             val p = arrayListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.POST_NOTIFICATIONS)
             requestPermissions(p.toTypedArray(), REQ_LOC)
+        }
+
+        /** "Allow all the time" location, so the day can start while Companion is closed (Android shows its own screen). */
+        @JavascriptInterface fun askBgLocation() = runOnUiThread {
+            if (Build.VERSION.SDK_INT < 29) return@runOnUiThread
+            if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) { askLocation(); return@runOnUiThread }
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_BGLOC)
         }
 
         @JavascriptInterface fun askNotify() = runOnUiThread {
@@ -331,12 +361,7 @@ class MainActivity : Activity() {
             }.start()
         }
 
-        @JavascriptInterface fun startDay() = runOnUiThread {
-            if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) { askLocation(); return@runOnUiThread }
-            if (!Tracker.isRunning(this@MainActivity)) Tracker.startDay(this@MainActivity)
-            TrackerService.start(this@MainActivity)
-            web.evaluateJavascript("refresh()", null)
-        }
+        @JavascriptInterface fun startDay() = runOnUiThread { doStartDay() }
 
         @JavascriptInterface fun endDay() = runOnUiThread {
             val start = Tracker.state(this@MainActivity).optLong("dayStart", 0L)
@@ -542,7 +567,7 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner")) Store.put(this@MainActivity, key, value)
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome")) Store.put(this@MainActivity, key, value.take(80))
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
@@ -633,6 +658,7 @@ class MainActivity : Activity() {
     companion object {
         const val REQ_SMS = 10
         const val REQ_LOC = 11
+        const val REQ_BGLOC = 21
         const val REQ_NOTIFY = 12
         const val REQ_BT = 13
         const val REQ_SHOT = 14

@@ -177,7 +177,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </div>
     <div class="card" id="mpgCard">
       <h2>Log trips in MPG</h2>
-      <div class="hint">One trip per drive, the way you log them in MPG. Companion fills in each trip; you check it and tap Save in MPG.</div>
+      <div class="hint">One trip per drive, the way you log them in MPG. Mileage is logged only after the day ends: End my day (or arriving home) offers the whole day's trips at once. Companion fills in each trip; you check it and tap Save in MPG.</div>
       <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
@@ -224,6 +224,15 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <button class="btn sec" id="fordRawBtn">View raw Ford data</button>
       <label class="set"><span><b>Use Ford for the odometer</b><br><span class="hint">When the adapter isn't connected, ask Ford for the odometer while you drive (every 5 minutes).</span></span><input type="checkbox" class="sw" id="fordUse"></label>
       <pre id="fordOut" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
+    </div>
+    <div class="card" id="autoCard">
+      <h2>Start and end automatically</h2>
+      <label class="set"><span><b>Start my day when my phone connects to</b><br><span class="hint">Pick the van's Bluetooth (radio or adapter). If your day ended at home earlier today, it picks that day back up.</span></span><input type="checkbox" class="sw" id="autoStart"></label>
+      <div class="row" style="gap:6px;align-items:center"><select id="autoDev" style="flex:1;min-width:0"></select><button class="btn sec" id="autoDevRefresh" style="width:auto;flex:none;margin:0;padding:8px 12px">Refresh</button></div>
+      <div class="hint" id="autoStartHint" style="margin-top:6px"></div>
+      <button class="btn sec" id="autoBgBtn" hidden>Allow location “All the time”</button>
+      <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day once you're home and stopped, then offers the email and the day's MPG trips. Going back out? Start your day again (or just connect to the van) and it continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
+      <div class="hint" id="autoEndHint"></div>
     </div>
     <div class="card">
       <h2>Home location</h2>
@@ -484,7 +493,7 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail(); renderMpg(); renderOil();
+  renderMail(); renderMpg(); renderOil(); renderAuto();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
@@ -684,11 +693,22 @@ function emailSegs(segs,title,key){
 window.onEmail=r=>{ if(r==="noOutlook"){ if(confirm("Outlook isn't installed on this phone. Your time log is only sent through Outlook. Open the Play Store to install it?")) A.open("market://details?id=com.microsoft.office.outlook"); } else if(r==="error") toast("Couldn't open Outlook."); };
 // Called by the app right after End my day, with the day's start and end times.
 window.onDayEnded=(start,end)=>{
-  refresh(); const st=S.settings||{};
-  if(!st.workEmail || st.autoEmail===false) return;
+  refresh(); const st=S.settings||{}, k=dayKey(start);
   const segs=allSegs().filter(g=>g.start>=start-60e3 && g.start<=end).sort((a,b)=>a.start-b.start);
-  if(segs.length) emailSegs(segs,dayName(new Date(start)),dayKey(start));
+  const emailing=!!(st.workEmail && st.autoEmail!==false && segs.length);
+  if(mpgLeft(k).length) MPG_NEXT=k;   // the mileage batch comes next (right away, or after Outlook)
+  if(emailing){ emailSegs(segs,dayName(new Date(start)),k); return; }
+  offerMpg();
 };
+let MPG_NEXT=null;
+function offerMpg(){
+  const k=MPG_NEXT; MPG_NEXT=null; if(!k) return;
+  const n=mpgLeft(k).length; if(!n) return;
+  if(confirm(`Log the day's ${n} trip${n>1?"s":""} in MPG now? Companion opens MPG and fills in each trip in turn; you check it and tap Save.`)) openMpgDay(k);
+  else toast("You can log them later from the Timer tab → Log trips in MPG.");
+}
+// Back from Outlook after the day's email: now offer the mileage batch.
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&MPG_NEXT) setTimeout(offerMpg,500); });
 // ---- MPG trips: one trip per drive (home → store, store → store, store → home). A commute drive that runs past
 // 30 minutes becomes two trips (personal part, then work part, or the reverse at night). Odometers are whole miles,
 // and each trip starts where the last one ended.
@@ -774,6 +794,29 @@ $("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSec
   if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
   A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
 $("fordRawBtn").onclick=()=>{ $("fordRawBtn").disabled=true; $("fordRawBtn").textContent="Asking Ford…"; A.fordRaw(); };
+// ---- automatic start (Bluetooth) and end (home) ----
+function renderAuto(){
+  const st=S.settings||{}, p=S.perm||{}, sel=$("autoDev");
+  let devs=[]; try{ devs=JSON.parse(A.obdPaired()||"[]"); }catch(e){}
+  const cur=st.autoStartAddr||"";
+  if(document.activeElement===sel) return;   // don't rebuild the list while it's open
+  if(cur && !devs.some(d=>d.addr===cur)) devs.unshift({addr:cur,name:st.autoStartName||cur});
+  sel.innerHTML=`<option value="">${devs.length?"Choose a Bluetooth device…":"No paired devices found"}</option>`+devs.map(d=>`<option value="${esc(d.addr)}"${d.addr===cur?" selected":""}>${esc(d.name)}</option>`).join("");
+  $("autoStart").checked=!!st.autoStartBt;
+  let h="";
+  if(!p.bt) h="Allow Bluetooth for Companion to see your devices. ";
+  if(st.autoStartBt&&!cur) h+="Choose the device above. ";
+  if(st.autoStartBt&&cur) h+= p.bgLoc ? `Your day starts when this phone connects to ${st.autoStartName||"it"}.` : `When this phone connects to ${st.autoStartName||"it"}, you'll get a notification: tap it to start. For a fully hands-free start, allow location “All the time”.`;
+  $("autoStartHint").textContent=h.trim();
+  $("autoBgBtn").hidden=!(st.autoStartBt&&!p.bgLoc);
+  $("autoEnd").checked=!!st.autoEndHome; $("autoEnd").disabled=!st.home && !st.autoEndHome;
+  $("autoEndHint").textContent=!st.home?"Save your home location below first.":"";
+}
+$("autoStart").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoStartBt",e.target.checked?"1":"0"); track(e.target.checked?"auto-start-on":"auto-start-off"); refresh(); };
+$("autoDev").onchange=e=>{ const o=e.target.selectedOptions[0]; A.setSetting("autoStartAddr",e.target.value); A.setSetting("autoStartName",e.target.value?o.textContent:""); if(e.target.value&&!$("autoStart").checked){ A.setSetting("autoStartBt","1"); } refresh(); };
+$("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return; } renderAuto(); toast("Paired devices updated. Pair new ones in Android's Bluetooth settings."); };
+$("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
+$("autoEnd").onchange=e=>{ A.setSetting("autoEndHome",e.target.checked?"1":"0"); track(e.target.checked?"auto-end-on":"auto-end-off"); refresh(); };
 window.onFordWait=n=>{ let left=n; const b=$("fordRawBtn"), tick=()=>{ if(!b.disabled) return; b.textContent=left>0?`Ford asked us to wait… ${left} s`:"Asking Ford…"; if(left-->0) setTimeout(tick,1000); }; tick(); };
 window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };
 $("frCopy").onclick=()=>A.copy($("frText").textContent);
@@ -791,9 +834,12 @@ window.onFordTest=r=>{ $("fordTestBtn").disabled=false; $("fordTestBtn").textCon
   if(r.code===429){ o.textContent="Ford says to wait a minute between requests. Try again shortly."; return; }
   if(!(r.code>=200&&r.code<300)){ o.textContent=`Ford returned an error (${r.code}).\n${r.error||""}`; return; }
   o.textContent=(r.miles!=null?`Odometer: ${Math.round(r.miles).toLocaleString()} miles (Ford last updated it ${r.odoTime?new Date(r.odoTime).toLocaleString():"at an unknown time"})\n`:"Ford didn't include the odometer.\n")+`Ford sent ${ (r.keys||[]).length } kinds of data: ${(r.keys||[]).join(", ")}`; refresh(); };
-$("mpgBtn").onclick=()=>{
-  const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};
-  const trips=mpgTrips(segs,false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="(");
+function mpgLeft(k){ const done=S.mpgDone||{}; return mpgTrips(segsForDay(k),false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="("); }
+$("mpgBtn").onclick=()=>openMpgDay($("mpgDay").value);
+// Mileage goes to MPG only once the day is over: End my day (or arriving home) offers the whole day's trips as one batch.
+function openMpgDay(k){
+  const done=S.mpgDone||{};
+  const trips=mpgLeft(k);
   if(!trips.length){ toast("Nothing left to log for that day."); return; }
   const [y,m,d]=k.split("-").map(Number);
   A.openMpg(JSON.stringify({date:{y,m,d,today:k===dayKey(Date.now())},trips:trips.map(t=>({key:t.key,purpose:t.purpose,estStart:t.startOdo,endOdo:t.adapter?t.endOdo:null,miles:t.mi!=null?t.mi:Math.round(t.miles),personal:t.personal,label:`${t.from} → ${t.to}${t.part?" ("+t.part+")":""}`}))})); track("mpg-open");
@@ -978,7 +1024,7 @@ const PERMS=[
   ["location","Location","For the timer and personal/work miles.",()=>A.askLocation()],
   ["notify","Notifications","For new calls, the timer, and updates.",()=>A.askNotify()],
   ["battery","Run in the background","So Android's battery saver doesn't pause the timer or miss texts.",()=>A.askBattery()],
-  ["bt","Bluetooth","To read the odometer adapter.",()=>A.askBluetooth()],
+  ["bt","Bluetooth","To read the odometer adapter and start your day when you connect to the van.",()=>A.askBluetooth()],
   ["install","Install updates","So Companion can install its own updates (you confirm each one).",()=>A.allowInstall()]
 ];
 function missingPerms(){ const p=S.perm||{}; return PERMS.filter(([k])=> k==="bt" ? (p.btNeeded&&p.bt===false) : p[k]===false); }

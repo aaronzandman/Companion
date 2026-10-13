@@ -36,11 +36,31 @@ object Tracker {
         save(c, s)
     }
 
-    fun endDay(c: Context, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+    fun endDay(c: Context, now: Long = System.currentTimeMillis(), auto: Boolean = false) = synchronized(lock) {
         val s = state(c)
         s.optJSONObject("cur")?.let { close(c, it, now) }
-        save(c, JSONObject().put("running", false).put("lastEnd", now))
+        save(c, JSONObject().put("running", false).put("lastEnd", now).put("auto", auto)
+            .put("lastDayStart", s.optLong("dayStart", now)).put("lastDep", s.optLong("dep", 0L)).put("lastReached", s.optBoolean("reached")))
     }
+
+    private fun sameDay(a: Long, b: Long): Boolean {
+        val f = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US); return f.format(java.util.Date(a)) == f.format(java.util.Date(b))
+    }
+    /** A day ended earlier today (by you or at home). */
+    fun endedToday(c: Context, now: Long = System.currentTimeMillis()): Boolean { val s = state(c); return !s.optBoolean("running") && s.optLong("lastEnd", 0L) > 0 && sameDay(s.optLong("lastEnd"), now) }
+    /** Today's day ended automatically on arriving home, so it can carry on (e.g. after lunch at home). */
+    fun resumable(c: Context, now: Long = System.currentTimeMillis()) = endedToday(c, now) && state(c).optBoolean("auto")
+
+    /** Carries on the day that ended at home: same start of day, the time at home in between isn't counted. */
+    fun resumeDay(c: Context, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+        val o = state(c)
+        save(c, JSONObject().put("running", true).put("dayStart", o.optLong("lastDayStart", now)).put("dep", o.optLong("lastDep", 0L))
+            .put("reached", o.optBoolean("lastReached")).put("mark", true).put("resumed", now)
+            .put("cur", JSONObject().put("type", "STOP").put("store", "").put("start", now)))
+    }
+
+    /** Undo a start that Android didn't allow (nothing was recorded yet). */
+    fun cancelStart(c: Context) = synchronized(lock) { val s = state(c); if (s.optBoolean("running")) save(c, JSONObject().put("running", false)) }
 
     private fun close(c: Context, cur: JSONObject, end: Long) {
         val start = cur.optLong("start")

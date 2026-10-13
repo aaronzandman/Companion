@@ -92,6 +92,34 @@ object Notify {
         }
     }
 
+    const val ID_AUTODAY = 4
+    /** Automatic start/end messages. With [tapStarts], tapping opens Companion and starts (or resumes) the day. */
+    fun autoDay(c: Context, title: String, text: String, tapStarts: Boolean) {
+        channels(c)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val i = Intent(c, MainActivity::class.java).putExtra("tab", "timer").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (tapStarts) i.putExtra("startDay", true)
+        val pi = PendingIntent.getActivity(c, if (tapStarts) 91 else 92, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify).setContentTitle(title).setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(pi).setAutoCancel(true)
+        if (tapStarts) b.addAction(0, "Start my day", pi)
+        try { NotificationManagerCompat.from(c).notify(ID_AUTODAY, b.build()) } catch (_: SecurityException) {}
+    }
+
+    /** "Day ended at home": tapping opens the Timer and, if you email your day, Outlook with the log. */
+    fun dayEnded(c: Context, start: Long, end: Long) {
+        channels(c)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val at = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(end))
+        val i = Intent(c, MainActivity::class.java).putExtra("tab", "timer").putExtra("dayStart", start).putExtra("dayEnd", end)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(c, 93, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val text = "Ended at $at when you got home. Tap to review and email your time. Heading out again? Your day picks back up when you start it."
+        val n = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify).setContentTitle("Day ended at home")
+            .setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(pi).setAutoCancel(true).build()
+        try { NotificationManagerCompat.from(c).notify(ID_AUTODAY, n) } catch (_: SecurityException) {}
+    }
+
     fun tracker(c: Context, text: String) = NotificationCompat.Builder(c, CH_TRACKER)
         .setSmallIcon(R.drawable.ic_notify).setContentTitle("Companion timer is running").setContentText(text)
         .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(openApp(c, "timer")).build()
