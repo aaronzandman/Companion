@@ -81,11 +81,20 @@ object Ford {
         if (code !in 200..299) return null
         return try {
             val j = JSONObject(text)
+            saveExtras(c, j)
             val m = j.optJSONObject("metrics")?.optJSONObject("odometer") ?: return null
             val km = m.optDouble("value", Double.NaN); if (km.isNaN()) return null
             val t = parseTime(m.optString("updateTime").ifBlank { j.optString("updateTime") }) ?: System.currentTimeMillis()
             Pair(km / KM_PER_MILE, t)
         } catch (_: Exception) { null }
+    }
+
+    /** Keeps Ford's oil-life percentage (and when Ford reported it) for the oil life meter. */
+    fun saveExtras(c: Context, j: JSONObject) {
+        val o = j.optJSONObject("metrics")?.optJSONObject("oilLifeRemaining") ?: return
+        val v = o.opt("value"); val pct = (v as? Number)?.toDouble() ?: (v as? JSONObject)?.optDouble("value") ?: return
+        val t = parseTime(o.optString("updateTime").ifBlank { j.optString("updateTime") }) ?: System.currentTimeMillis()
+        Store.put(c, "fordOil", JSONObject().put("pct", pct).put("t", t).toString())
     }
 
     fun parseTime(s: String): Long? {

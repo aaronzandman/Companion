@@ -68,6 +68,14 @@ class MainActivity : Activity() {
                     .setOnCancelListener { result.cancel() }.show()
                 return true
             }
+            override fun onJsPrompt(view: WebView, url: String?, message: String?, defaultValue: String?, result: android.webkit.JsPromptResult): Boolean {
+                val input = android.widget.EditText(this@MainActivity).apply { setText(defaultValue ?: ""); setSingleLine(); inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+                android.app.AlertDialog.Builder(this@MainActivity).setTitle("Companion").setMessage(message).setView(input)
+                    .setPositiveButton("OK") { _, _ -> result.confirm(input.text.toString()) }
+                    .setNegativeButton("Cancel") { _, _ -> result.cancel() }
+                    .setOnCancelListener { result.cancel() }.show()
+                return true
+            }
             override fun onJsAlert(view: WebView, url: String?, message: String?, result: android.webkit.JsResult): Boolean {
                 android.app.AlertDialog.Builder(this@MainActivity).setTitle("Companion").setMessage(message)
                     .setPositiveButton("OK") { _, _ -> result.confirm() }
@@ -175,7 +183,11 @@ class MainActivity : Activity() {
                     .put("debug", Store.get(c, "debug", "0") == "1")
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
-                        .put("idEnd", Store.get(c, "fordId", "").takeLast(4)))
+                        .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
+                        .put("oil", try { JSONObject(Store.get(c, "fordOil", "")) } catch (_: Exception) { JSONObject.NULL })
+                        .put("lastFetch", Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L))
+                    .put("oilLast", try { JSONObject(Store.get(c, "oilLast", "")) } catch (_: Exception) { JSONObject.NULL })
+                    .put("oilInterval", Store.get(c, "oilInterval", "5000").toIntOrNull() ?: 5000)
                     .put("odoBase", try { JSONObject(Store.get(c, "odoBase", "")) } catch (_: Exception) { JSONObject.NULL })
                     .put("home", Store.get(c, "home", "").let { if (it.isEmpty()) JSONObject.NULL else JSONObject(it) }))
                 .toString()
@@ -392,6 +404,13 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION") startActivityForResult(Intent(this@MainActivity, FordActivity::class.java), REQ_FORD)
         }
         @JavascriptInterface fun fordDisconnect() { Ford.disconnect(this@MainActivity) }
+        /** Quietly gets the latest odometer and oil life from Ford (at most every 30 minutes), then refreshes the screen. */
+        @JavascriptInterface fun fordRefresh() {
+            val c = this@MainActivity
+            if (!Ford.connected(c) || System.currentTimeMillis() - (Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L) < 30 * 60_000L) return
+            Store.put(c, "fordFetch", System.currentTimeMillis().toString())
+            Thread { Ford.readMiles(c)?.let { (mi, t) -> Obd.record(c, t, mi) }; runOnUiThread { web.evaluateJavascript("refresh()", null) } }.start()
+        }
         @JavascriptInterface fun fordUse(on: Boolean) { Store.put(this@MainActivity, "fordOdo", if (on) "1" else "0") }
         /** Asks Ford for the van's data once; calls onFordTest(result) with the odometer and what Ford returned. */
         @JavascriptInterface fun fordTest() {
@@ -400,7 +419,7 @@ class MainActivity : Activity() {
                 val (code, text) = Ford.get(c, "telemetry")
                 val res = JSONObject().put("code", code)
                 try {
-                    val j = JSONObject(text); val m = j.optJSONObject("metrics")
+                    val j = JSONObject(text); val m = j.optJSONObject("metrics"); Ford.saveExtras(c, j)
                     res.put("updateTime", j.optString("updateTime"))
                     res.put("keys", JSONArray(m?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList<String>()))
                     m?.optJSONObject("odometer")?.let { o -> val km = o.optDouble("value", Double.NaN)
@@ -427,6 +446,11 @@ class MainActivity : Activity() {
                 try { val o = JSONObject(value); val mi = o.getDouble("mi"); if (mi in 0.0..2_000_000.0) Store.put(this@MainActivity, key, JSONObject().put("mi", Math.round(mi)).put("t", System.currentTimeMillis()).toString()) } catch (_: Exception) {}
                 return
             }
+            if (key == "oilLast") {   // {"mi": odometer at the oil change}
+                try { val mi = JSONObject(value).getDouble("mi"); if (mi in 0.0..2_000_000.0) Store.put(this@MainActivity, key, JSONObject().put("mi", Math.round(mi)).put("t", System.currentTimeMillis()).toString()) } catch (_: Exception) {}
+                return
+            }
+            if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
             if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "debug")) Store.put(this@MainActivity, key, value)
         }

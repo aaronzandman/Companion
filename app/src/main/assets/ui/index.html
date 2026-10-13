@@ -83,6 +83,9 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .ack input{width:22px;height:22px;flex:none;accent-color:var(--road)}
 .devd{margin:6px 0 0 30px;font-size:13px}.devd summary{color:var(--road);font-weight:600}
 .devd pre{white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.45 ui-monospace,monospace;margin:6px 0 0}
+.oilbar{height:16px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:8px 0 6px}
+.oilbar i{display:block;height:100%;border-radius:999px;transition:width .3s}
+.oilrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.oilrow b{font:700 20px var(--sign)}
 .trip{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
 .trip .n{font-weight:700;color:var(--muted)}.trip .r{text-align:right;font-variant-numeric:tabular-nums}.trip.done{opacity:.6}
 .uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px;flex-wrap:wrap}.uidbox input{min-width:0;flex:1 1 120px}
@@ -146,6 +149,13 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       </div>
       <div class="hint" id="payNote" style="margin-top:6px"></div>
       <div class="warn" id="odoWarn" hidden style="margin:10px 0 0"></div>
+    </div>
+    <div class="card" id="oilCard" hidden>
+      <h2>Oil life</h2>
+      <div class="oilbar" role="meter" aria-label="Oil life" aria-valuemin="0" aria-valuemax="100" id="oilMeter"><i id="oilFill"></i></div>
+      <div class="oilrow"><b id="oilMain"></b><span class="hint" id="oilSub"></span></div>
+      <div class="hint" id="oilFord"></div>
+      <button class="btn sec" id="oilChanged">Oil changed</button>
     </div>
     <div class="card">
       <h2>Today</h2>
@@ -335,7 +345,7 @@ function showTab(t){
 }
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
-function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dailyUsage(); }catch(e){} }
+function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dailyUsage(); }catch(e){} try{ A.fordRefresh&&A.fordRefresh(); }catch(e){} }
 
 function render(){
   const p=S.perm||{};
@@ -394,7 +404,7 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail(); renderMpg();
+  renderMail(); renderMpg(); renderOil();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
@@ -687,6 +697,28 @@ $("mpgBtn").onclick=()=>{
   if(!trips.length){ toast("Nothing left to log for that day."); return; }
   const [y,m,d]=k.split("-").map(Number);
   A.openMpg(JSON.stringify({date:{y,m,d,today:k===dayKey(Date.now())},trips:trips.map(t=>({key:t.key,purpose:t.purpose,estStart:t.startOdo,endOdo:t.adapter?t.endOdo:null,miles:t.mi!=null?t.mi:Math.round(t.miles),personal:t.personal,label:`${t.from} → ${t.to}${t.part?" ("+t.part+")":""}`}))})); track("mpg-open");
+};
+// ---- Oil life: miles left on the oil-change interval (default 5,000), counted from the odometer at the last change.
+// Until a change is marked, Ford's own oil-life percentage is used.
+function renderOil(){
+  const fd=(S.settings||{}).ford||{}, last=S.oilLast, iv=S.oilInterval||5000, now=odoEstimate(Date.now()), ford=fd.oil;
+  const show=!!(fd.connected||last); $("oilCard").hidden=!show; if(!show) return;
+  let pct=null, main="", sub="";
+  if(last&&now){ const left=Math.round(iv-(now.v-last.mi)); pct=Math.max(0,Math.min(100,left/iv*100));
+    main=left>0?`${left.toLocaleString()} mi left`:`${Math.abs(left).toLocaleString()} mi overdue`; sub=`changed at ${last.mi.toLocaleString()} · every ${iv.toLocaleString()} mi`; }
+  else if(ford&&typeof ford.pct==="number"){ pct=Math.max(0,Math.min(100,ford.pct)); main=`${Math.round(pct)}%`; sub=`≈ ${Math.round(pct/100*iv).toLocaleString()} mi left on a ${iv.toLocaleString()}-mi interval`; }
+  else { main="No reading yet"; sub="Tap Oil changed after your next change"; }
+  const col=pct===null?"var(--line)":pct<=5?"#C8372D":pct<=15?"#C98A12":"#2E8A66";
+  $("oilFill").style.width=(pct===null?0:Math.max(3,pct))+"%"; $("oilFill").style.background=col; $("oilMeter").setAttribute("aria-valuenow",pct===null?"":Math.round(pct));
+  $("oilMain").textContent=main+(pct!==null&&pct<=5?" · change oil now":pct!==null&&pct<=15?" · change soon":""); $("oilMain").style.color=pct!==null&&pct<=15?col:"";
+  $("oilSub").textContent=sub;
+  $("oilFord").textContent = ford&&typeof ford.pct==="number" ? `Ford's oil-life monitor: ${Math.round(ford.pct)}% (${when(ford.t)})` : fd.connected ? "Ford hasn't sent oil life yet." : "";
+}
+$("oilChanged").onclick=()=>{
+  const est=odoEstimate(Date.now()), guess=est?Math.round(est.v):"";
+  const v=prompt("Odometer at the oil change (miles):", guess); if(v===null) return;
+  const n=parseInt(String(v).replace(/[^0-9]/g,""),10); if(!(n>0)){ toast("Enter the odometer in miles."); return; }
+  A.setSetting("oilLast",JSON.stringify({mi:n})); toast("Oil change saved. The meter starts over."); refresh();
 };
 function renderMail(){
   const st=S.settings||{}, sel=$("mailDay"), keep=sel.value;
