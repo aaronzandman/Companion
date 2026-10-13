@@ -225,8 +225,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="histHint" style="margin-top:4px"></div>
         <button class="btn sec" id="expCalls" style="margin-top:8px">Export all calls for desktop</button>
         <div class="hint" id="expHint" style="margin-top:4px"></div></div>
-      <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
-        <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option><option value="600">600 m (large shopping centers)</option></select></label>
+      <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store". Try 600 m if a big shopping center isn't recognized.</span></span>
+        <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option><option value="600">600 m</option></select></label>
     </div>
     <div class="card" id="odoCard">
       <h2>Odometer</h2>
@@ -256,6 +256,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="row" style="gap:6px;align-items:center"><select id="autoDev" style="flex:1;min-width:0"></select><button class="btn sec" id="autoDevRefresh" style="width:auto;flex:none;margin:0;padding:8px 12px">Refresh</button></div>
       <div class="hint" id="autoStartHint" style="margin-top:6px"></div>
       <button class="btn sec" id="autoBgBtn" hidden>Allow location “All the time”</button>
+      <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Driving starts when your phone connects to it and ends when it disconnects; GPS only works out where you stopped (store, home or elsewhere) and the miles. Turn off if you drive a different vehicle.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
       <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day once you're home and stopped, then offers the email and the day's MPG trips. Going back out? Start your day again (or just connect to the van) and it continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
       <div class="hint" id="autoEndHint"></div>
     </div>
@@ -923,6 +924,7 @@ function renderAuto(){
   if(st.autoStartBt&&cur) h+= p.bgLoc ? `Your day starts when this phone connects to ${st.autoStartName||"it"}.` : `When this phone connects to ${st.autoStartName||"it"}, you'll get a notification: tap it to start. For a fully hands-free start, allow location “All the time”.`;
   $("autoStartHint").textContent=h.trim();
   $("autoBgBtn").hidden=!(st.autoStartBt&&!p.bgLoc);
+  $("autoBtDrive").checked=!!st.autoBtDrive; $("autoBtDrive").disabled=!cur&&!st.autoBtDrive;
   $("autoEnd").checked=!!st.autoEndHome; $("autoEnd").disabled=!st.home && !st.autoEndHome;
   $("autoEndHint").textContent=!st.home?"Save your home location below first.":"";
 }
@@ -930,6 +932,7 @@ $("autoStart").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetoo
 $("autoDev").onchange=e=>{ const o=e.target.selectedOptions[0]; A.setSetting("autoStartAddr",e.target.value); A.setSetting("autoStartName",e.target.value?o.textContent:""); if(e.target.value&&!$("autoStart").checked){ A.setSetting("autoStartBt","1"); } refresh(); };
 $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return; } renderAuto(); toast("Paired devices updated. Pair new ones in Android's Bluetooth settings."); };
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
+$("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 $("autoEnd").onchange=e=>{ A.setSetting("autoEndHome",e.target.checked?"1":"0"); track(e.target.checked?"auto-end-on":"auto-end-off"); refresh(); };
 window.onFordWait=n=>{ let left=n; const b=$("fordRawBtn"), tick=()=>{ if(!b.disabled) return; b.textContent=left>0?`Ford asked us to wait… ${left} s`:"Asking Ford…"; if(left-->0) setTimeout(tick,1000); }; tick(); };
 window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };

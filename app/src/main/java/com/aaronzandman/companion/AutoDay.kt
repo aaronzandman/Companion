@@ -24,8 +24,9 @@ object AutoDay {
     fun backgroundOk(c: Context) = Build.VERSION.SDK_INT < 29 || granted(c, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
     fun onConnected(c: Context, addr: String, name: String) {
-        if (!startEnabled(c) || !addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
-        if (Tracker.isRunning(c)) return
+        if (!addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
+        if (Tracker.isRunning(c)) { if (Tracker.btMode(c) && Tracker.btConnected(c)) TrackerService.ping(c); return }
+        if (!startEnabled(c)) return
         if (!granted(c, Manifest.permission.ACCESS_FINE_LOCATION)) {
             Notify.autoDay(c, "$name connected", "Allow location for Companion so your day can start by itself. Tap to open.", true); return
         }
@@ -36,6 +37,7 @@ object AutoDay {
         if (backgroundOk(c)) {
             try {
                 if (resume) Tracker.resumeDay(c) else Tracker.startDay(c)
+                if (Tracker.btMode(c)) Tracker.btConnected(c)
                 TrackerService.start(c)
                 val at = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())
                 Notify.autoDay(c, if (resume) "Day picked back up" else "Day started", "${if (resume) "Continued" else "Started"} at $at when $name connected.", false)
@@ -43,6 +45,11 @@ object AutoDay {
             } catch (_: Exception) { Tracker.cancelStart(c) }
         }
         Notify.autoDay(c, "$name connected", if (resume) "Tap to pick your day back up." else "Tap to start your day.", true)
+    }
+
+    fun onDisconnected(c: Context, addr: String) {
+        if (!addr.equals(Store.get(c, "autoStartAddr", ""), true) || !Tracker.btMode(c)) return
+        if (Tracker.btDisconnected(c)) { TrackerService.ping(c); if (checkHome(c)) TrackerService.stop(c) }
     }
 
     /** Called with each location update while the day runs. True if the day was just ended at home. */
@@ -61,11 +68,12 @@ object AutoDay {
 class BtReceiver : BroadcastReceiver() {
     @SuppressLint("MissingPermission")
     override fun onReceive(c: Context, i: Intent) {
-        if (i.action != BluetoothDevice.ACTION_ACL_CONNECTED) return
+        if (i.action != BluetoothDevice.ACTION_ACL_CONNECTED && i.action != BluetoothDevice.ACTION_ACL_DISCONNECTED) return
         val d: BluetoothDevice = (if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
             else @Suppress("DEPRECATION") i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)) ?: return
         val name = try { d.name } catch (_: SecurityException) { null } ?: Store.get(c, "autoStartName", "Bluetooth")
         val pr = goAsync()
-        Thread { try { AutoDay.onConnected(c, d.address, name) } finally { pr.finish() } }.start()
+        val on = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
+        Thread { try { if (on) AutoDay.onConnected(c, d.address, name) else AutoDay.onDisconnected(c, d.address) } catch (_: Exception) {} finally { pr.finish() } }.start()
     }
 }

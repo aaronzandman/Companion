@@ -116,6 +116,16 @@ object Tracker {
             val lastT = trk.optJSONArray(trk.length() - 1)?.optLong(0) ?: 0L
             if (t / 1000 - lastT >= 60) trk.put(JSONArray().put(t / 1000).put(Math.round(cur.optDouble("m", 0.0))))
         }
+        if (btMode(c)) {   // Bluetooth decides driving vs stopped; GPS only says where you stopped
+            if (cur.optString("type") != "DRIVE") {
+                val (wt, ws) = when { near != null && speed < 8.0 -> Pair("STORE", near.num); atHome && speed < 8.0 -> Pair("HOME", ""); else -> Pair(cur.optString("type"), cur.optString("store")) }
+                if ((wt != cur.optString("type") || ws != cur.optString("store")) && cur.optString("type") != "HOME") {
+                    cur.put("type", wt).put("store", ws); if (wt == "STORE") s.put("reached", true)
+                }
+            }
+            s.remove("cand"); if (!s.has("cur")) s.put("cur", cur)
+            save(c, s); return describe(c, s.getJSONObject("cur"))
+        }
         val obsType: String; val obsStore: String
         when {
             speed >= 4.5 -> { obsType = "DRIVE"; obsStore = "" }
@@ -192,6 +202,44 @@ object Tracker {
         for (i in 0 until segs.length()) { val g = segs.getJSONObject(i); if (g.optLong("start") == start) { if (tag.isEmpty()) g.remove("tag") else g.put("tag", tag) }; out.put(g) }
         Store.saveSegments(c, out)
         val s = state(c); s.optJSONObject("cur")?.let { if (it.optLong("start") == start) { if (tag.isEmpty()) it.remove("tag") else it.put("tag", tag); save(c, s) } }
+    }
+
+    /** Driving is decided by the van's Bluetooth (connected = driving), not by GPS speed. */
+    fun btMode(c: Context) = Store.get(c, "autoBtDrive", "0") == "1" && Store.get(c, "autoStartAddr", "").isNotBlank()
+
+    /** Van connected: a drive starts now. A reconnect within 90 s of a disconnect just continues the same drive. */
+    fun btConnected(c: Context, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        val s = state(c); if (!s.optBoolean("running")) return@synchronized false
+        val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", now)
+        if (cur.optString("type") == "DRIVE") return@synchronized false
+        val segs = Store.segments(c); val lastSeg = if (segs.length() > 0) segs.getJSONObject(segs.length() - 1) else null
+        if (now - cur.optLong("start") < 90_000L && lastSeg != null && lastSeg.optString("type") == "DRIVE" && Math.abs(lastSeg.optLong("end") - cur.optLong("start")) < 5_000L) {
+            segs.remove(segs.length() - 1); Store.saveSegments(c, segs); lastSeg.remove("end"); s.put("cur", lastSeg)
+        } else {
+            close(c, cur, now)
+            s.put("cur", JSONObject().put("type", "DRIVE").put("store", "").put("start", now))
+            if (s.optLong("dep", 0L) == 0L) s.put("dep", now)
+        }
+        s.remove("cand"); s.put("boundary", now); save(c, s); true
+    }
+
+    /** Van disconnected: the drive ends now. Where you are decides store / home / other stop (GPS keeps refining it). */
+    fun btDisconnected(c: Context, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        val s = state(c); if (!s.optBoolean("running")) return@synchronized false
+        val cur = s.optJSONObject("cur") ?: return@synchronized false
+        if (cur.optString("type") != "DRIVE") return@synchronized false
+        close(c, cur, now)
+        var type = "STOP"; var num = ""
+        s.optJSONObject("last")?.takeIf { now - it.optLong("t") < 120_000L }?.let { l ->
+            val lat = l.optDouble("lat"); val lng = l.optDouble("lng")
+            val radius = Store.get(c, "radius", DEFAULT_RADIUS).toDoubleOrNull() ?: 400.0
+            val st = Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius }?.first
+            if (st != null) { type = "STORE"; num = st.num }
+            else if (home(c)?.let { Stores.meters(it.first, it.second, lat, lng) <= HOME_M } == true) type = "HOME"
+        }
+        if (type == "STORE") s.put("reached", true)
+        s.put("cur", JSONObject().put("type", type).put("store", num).put("start", now))
+        s.remove("cand"); s.put("boundary", now); save(c, s); true
     }
 
     private val TYPES = setOf("DRIVE", "STORE", "STOP", "HOME")

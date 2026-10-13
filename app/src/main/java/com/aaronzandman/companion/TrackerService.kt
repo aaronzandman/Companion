@@ -33,6 +33,13 @@ class TrackerService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP || !Tracker.isRunning(this)) { stopEverything(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_BT && lm != null) {   // van connected/disconnected: odometer reading, full GPS while driving, fresh status
+            lastOdoTry = 0L; readOdometer(System.currentTimeMillis())
+            if (Tracker.state(this).optJSONObject("cur")?.optString("type") == "DRIVE") moving()
+            val t = Tracker.state(this).optJSONObject("cur")?.let { Tracker.describe(this, it) } ?: ""
+            if (t.isNotEmpty() && t != lastText) { lastText = t; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, t)) }
+            return START_STICKY
+        }
         Notify.channels(this)
         val n = Notify.tracker(this, Tracker.state(this).optJSONObject("cur")?.let { Tracker.describe(this, it) } ?: "Starting…")
         try {
@@ -144,6 +151,9 @@ class TrackerService : Service(), LocationListener {
 
     companion object {
         const val ACTION_STOP = "stop"
+        const val ACTION_BT = "bt"
+        /** Tell the running timer that the van connected or disconnected. */
+        fun ping(c: Context) { try { c.startService(Intent(c, TrackerService::class.java).setAction(ACTION_BT)) } catch (_: Exception) {} }
         fun start(c: Context) = ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java))
         fun stop(c: Context) = c.startService(Intent(c, TrackerService::class.java).setAction(ACTION_STOP))
     }
