@@ -89,6 +89,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .oilrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.oilrow b{font:700 20px var(--sign)}
 .guide h3{font:700 16px/1.3 var(--sign);margin:14px 0 4px}.guide ol,.guide ul{margin:4px 0;padding-left:20px;font-size:14px}.guide li{margin:5px 0}
 .codebox{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0;padding:6px 8px;background:var(--soft);border:1px solid var(--line);border-radius:8px}.codebox code{font:13px ui-monospace,monospace;word-break:break-all;flex:1;min-width:0}
+#secret{position:fixed;right:6px;bottom:6px;width:16px;height:16px;border-radius:3px;background:var(--line);opacity:.35;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;z-index:4}
 .permrow{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
 .permrow label{display:flex;gap:6px;align-items:center;margin-top:4px}
 .trip{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
@@ -279,13 +280,6 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="uidMsg"></div></div>
       <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
     </div>
-    <div class="card" id="tierCard">
-      <h2>Features</h2>
-      <div id="tierNow" style="font-weight:600"></div>
-      <div class="hint" id="tierHint"></div>
-      <div class="row" style="align-items:center;margin-top:8px" id="tierRow"><input type="password" id="tierCode" placeholder="Unlock code" autocomplete="off" style="flex:1;min-width:0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"><button class="btn" style="width:auto;margin:0" id="tierBtn">Unlock</button></div>
-      <button class="btn sec" id="tierLock" hidden>Go back to Companion</button>
-    </div>
     <div class="card">
       <h2>About</h2>
       <div class="hint" id="about"></div>
@@ -295,6 +289,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <button class="btn sec" id="appSet">Android app settings</button>
       <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates, when you send calls to Route Planner, and when you send your time log from Outlook.</p>
     </div>
+    <div id="secret" aria-hidden="true"></div>
   </section>
 </main>
 <div id="fbDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="fbTitle" hidden>
@@ -366,6 +361,14 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <li><b>Start over:</b> tap <b>Disconnect</b>, then <b>Connect Ford</b> again.</li>
     </ul>
     <div class="row" style="margin-top:12px"><button class="btn" id="fgClose">Got it</button></div>
+  </div>
+</div>
+<div id="tierDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="tierTitle" hidden>
+  <div class="box">
+    <h2 id="tierTitle">Unlock</h2>
+    <div class="row" style="align-items:center" id="tierRow"><input type="password" id="tierCode" placeholder="Code" autocomplete="off" style="flex:1;min-width:0;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"><button class="btn" style="width:auto;margin:0" id="tierBtn">Unlock</button></div>
+    <button class="btn sec" id="tierLock" hidden>Lock</button>
+    <button class="btn sec" id="tierClose">Close</button>
   </div>
 </div>
 <div id="permDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="permTitle" hidden>
@@ -482,8 +485,6 @@ function render(){
   $("fordCreds").hidden=!!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
   const tier=S.tier||1;
   $("obdCard").hidden=tier<2; $("fordCard").hidden=tier<3;
-  $("tierNow").textContent=S.tierName||"Companion";
-  $("tierHint").textContent = tier>=3 ? "Everything is unlocked: GPS mileage, the odometer adapter, and the Ford connection with oil life." : tier===2 ? "GPS mileage and the odometer adapter. Enter the ++ code to add the Ford connection and oil life." : "GPS mileage and the odometer you enter. Enter an unlock code to add the odometer adapter (+) or the adapter plus Ford connection and oil life (++).";
   $("tierRow").hidden=tier>=3; $("tierLock").hidden=tier<2;
   $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
@@ -788,9 +789,17 @@ function renderOil(){
 }
 $("tierBtn").onclick=()=>{ const c=$("tierCode").value; if(!c.trim()) return;
   const lvl=A.unlock(c); $("tierCode").value="";
-  if(lvl===3){ toast("Companion++ unlocked."); setTimeout(()=>{ showTab("settings"); $("fordGuide").hidden=false; },400); } else if(lvl===2) toast("Companion+ unlocked."); else toast("That code isn't right.");
+  if(lvl===3){ toast("Companion++ unlocked."); $("tierDlg").hidden=true; setTimeout(()=>{ showTab("settings"); $("fordGuide").hidden=false; },400); } else if(lvl===2) toast("Companion+ unlocked."); else toast("That code isn't right.");
   refresh(); };
-$("tierLock").onclick=()=>{ if(confirm("Go back to Companion? The odometer adapter and Ford features turn off (your saved settings stay).")){ A.lockTier(); refresh(); } };
+$("tierLock").onclick=()=>{ if(confirm("Lock again? Your saved settings stay.")){ A.lockTier(); refresh(); toast("Locked."); } };
+$("tierClose").onclick=()=>{ $("tierDlg").hidden=true; $("tierCode").value=""; };
+// Hidden unlock: press and hold the small square in the bottom-right corner of Settings for 10 seconds.
+(function(){ const sq=$("secret"); let t=null;
+  const stop=()=>{ if(t){ clearTimeout(t); t=null; } };
+  sq.addEventListener("pointerdown",e=>{ e.preventDefault(); stop(); t=setTimeout(()=>{ t=null; refresh(); $("tierDlg").hidden=false; $("tierCode").focus(); },10000); });
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>sq.addEventListener(ev,stop));
+  sq.addEventListener("contextmenu",e=>e.preventDefault());
+})();
 $("oilChanged").onclick=()=>{
   const est=odoEstimate(Date.now()), guess=est?Math.round(est.v):"";
   const v=prompt("Odometer at the oil change (miles):", guess); if(v===null) return;
