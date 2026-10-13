@@ -57,7 +57,7 @@ class TrackerService : Service(), LocationListener {
         if (loc.provider == LocationManager.NETWORK_PROVIDER && loc.accuracy > 150) return
         val now = System.currentTimeMillis()
         val before = Tracker.state(this).optLong("boundary", 0)
-        val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now)
+        val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now, if (loc.hasAccuracy()) loc.accuracy else 50f)
         if (AutoDay.checkHome(this)) { lastText = ""; stopEverything(); return }   // arrived home: day over
         val st = Tracker.state(this)
         adjustPower(loc, st, now)

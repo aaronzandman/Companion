@@ -17,6 +17,7 @@ import org.json.JSONObject
 object Tracker {
     private const val DRIVE_MS = 45_000L
     private const val STORE_MS = 90_000L
+    const val DEFAULT_RADIUS = "400"
     private const val STOP_MS = 180_000L
     private const val HOME_M = 200.0
 
@@ -65,6 +66,12 @@ object Tracker {
     private fun close(c: Context, cur: JSONObject, end: Long) {
         val start = cur.optLong("start")
         if (end - start < 60_000L) return
+        // A stop that was really a store visit (GPS too poor to tell at the time): match its average position to a store.
+        if (cur.optString("type") == "STOP" && cur.optString("tag").isEmpty() && cur.optInt("sN", 0) >= 2) {
+            val n = cur.optInt("sN"); val lat = cur.optDouble("sLat") / n; val lng = cur.optDouble("sLng") / n
+            val radius = Store.get(c, "radius", DEFAULT_RADIUS).toDoubleOrNull() ?: 400.0
+            Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius + 150.0 }?.let { cur.put("type", "STORE").put("store", it.first.num) }
+        }
         val segs = Store.segments(c)
         val g = JSONObject().put("type", cur.optString("type")).put("store", cur.optString("store"))
             .put("start", start).put("end", end).put("m", Math.round(cur.optDouble("m", 0.0)))
@@ -75,25 +82,34 @@ object Tracker {
     }
 
     /** Called for every location fix. Returns a short description of what's happening now. */
-    fun onFix(c: Context, lat: Double, lng: Double, speedIn: Float?, t: Long): String {
+    fun onFix(c: Context, lat: Double, lng: Double, speedIn: Float?, t: Long, acc: Float = 20f): String {
       synchronized(lock) {
         val s = state(c)
         if (!s.optBoolean("running")) return "Not tracking"
+        if (acc > 250f) return s.optJSONObject("cur")?.let { describe(c, it) } ?: "Tracking"   // too vague to use (deep indoors)
         val last = s.optJSONObject("last")
-        var speed = speedIn?.toDouble() ?: -1.0
+        // Trust the phone's own speed only from a good GPS fix. Otherwise work it out from the distance moved,
+        // minus the fixes' uncertainty: Wi-Fi/cell positions inside a store jump around and must not look like driving.
+        var speed = if (speedIn != null && acc <= 50f) speedIn.toDouble() else -1.0
         if (speed < 0 && last != null) {
             val dt = (t - last.optLong("t")) / 1000.0
-            if (dt > 0) speed = Stores.meters(last.optDouble("lat"), last.optDouble("lng"), lat, lng) / dt
+            val moved = Stores.meters(last.optDouble("lat"), last.optDouble("lng"), lat, lng) - maxOf(acc.toDouble(), last.optDouble("acc", 20.0))
+            if (dt > 0) speed = maxOf(0.0, moved) / dt
         }
-        s.put("last", JSONObject().put("lat", lat).put("lng", lng).put("t", t).put("speed", speed))
+        s.put("last", JSONObject().put("lat", lat).put("lng", lng).put("t", t).put("speed", speed).put("acc", acc.toDouble()))
         val stepM = if (last != null) Stores.meters(last.optDouble("lat"), last.optDouble("lng"), lat, lng) else 0.0
 
-        val radius = Store.get(c, "radius", "250").toDoubleOrNull() ?: 250.0
-        val near = Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius }?.first
+        val radius = Store.get(c, "radius", DEFAULT_RADIUS).toDoubleOrNull() ?: 400.0
+        val near = Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius + minOf(acc.toDouble(), 100.0) }?.first
+        // How long we've been near this same store: a few minutes there counts as a visit even if GPS jitters.
+        if (near != null) { val n = s.optJSONObject("near"); if (n?.optString("store") != near.num) s.put("near", JSONObject().put("store", near.num).put("since", t)) } else s.remove("near")
+        val nearFor = if (near != null) t - (s.optJSONObject("near")?.optLong("since") ?: t) else 0L
         val atHome = home(c)?.let { Stores.meters(it.first, it.second, lat, lng) <= HOME_M } == true
         val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", t)
         // GPS distance while moving (ignores parked jitter and impossible jumps)
         if (stepM in 0.0..5000.0 && speed >= 2.0) cur.put("m", cur.optDouble("m", 0.0) + stepM)
+        // Where a stop is (average of good fixes), so a stop can still be matched to a store when it ends.
+        if (acc <= 100f) cur.put("sLat", cur.optDouble("sLat", 0.0) + lat).put("sLng", cur.optDouble("sLng", 0.0) + lng).put("sN", cur.optInt("sN", 0) + 1)
         // Distance track: a point at least every 60 s, so miles can be split at any moment of a drive.
         run {
             val trk = cur.optJSONArray("trk") ?: JSONArray().put(JSONArray().put(cur.optLong("start") / 1000).put(0)).also { cur.put("trk", it) }
@@ -103,7 +119,7 @@ object Tracker {
         val obsType: String; val obsStore: String
         when {
             speed >= 4.5 -> { obsType = "DRIVE"; obsStore = "" }
-            near != null && speed < 2.5 -> { obsType = "STORE"; obsStore = near.num }
+            near != null && (speed < 2.5 || (nearFor >= 120_000L && speed < 8.0)) -> { obsType = "STORE"; obsStore = near.num }
             atHome && speed < 2.5 -> { obsType = "HOME"; obsStore = "" }
             speed in 0.0..1.5 -> { obsType = "STOP"; obsStore = "" }
             else -> { obsType = cur.optString("type"); obsStore = cur.optString("store") }

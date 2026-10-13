@@ -242,7 +242,7 @@ class MainActivity : Activity() {
                     .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
                 .put("settings", JSONObject()
                     .put("edition", Store.get(c, "edition", "VA"))
-                    .put("radius", Store.get(c, "radius", "250"))
+                    .put("radius", Store.get(c, "radius", Tracker.DEFAULT_RADIUS))
                     .put("senderFilter", Store.get(c, "senderFilter", ""))
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
                     .put("autoPlanner", Store.get(c, "autoPlanner", "0") == "1")
@@ -664,7 +664,7 @@ class MainActivity : Activity() {
             "Data (counts only): ${Store.dispatches(c).length()} dispatch texts, ${Store.segments(c).length()} time entries, ${Stores.all(c).size} stores loaded",
             "Home location: ${if (Tracker.home(c) != null) "saved (location not included)" else "not saved"}",
             "Ford connection: ${if (Ford.connected(c)) "connected" else if (Ford.configured(c)) "set up, not signed in" else "not set up"}",
-            "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", "250")} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
+            "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", Tracker.DEFAULT_RADIUS)} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
             "OBD adapter: ${if (Obd.enabled(c)) "set up (${obdType} Bluetooth)" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
             "Last crash: ${Store.get(c, "lastCrash", "none")}"
         )
