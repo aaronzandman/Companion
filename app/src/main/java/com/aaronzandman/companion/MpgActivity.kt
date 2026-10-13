@@ -208,10 +208,10 @@ class MpgActivity : Activity() {
   var s=q('startOdo'), e=q('endOdo'), p=q('purposeDesc'), per=q('personalUse')||document.querySelector('[name=isPersonal]'), dt=q('entryDate');
   if(!s||!e||!p) return JSON.stringify({ok:false});
   var mpgStart=parseInt(s.value,10); if(isNaN(mpgStart)) mpgStart=null;
-  var start = (t.startOdo!=null) ? t.startOdo : mpgStart;
+  // MPG fills in the date and starting odometer itself; Companion leaves the start alone.
+  var start = mpgStart;
   var end = (t.endOdo!=null) ? t.endOdo : (start!=null ? start + (t.miles||0) : null);
   set(p, String(t.purpose||'').slice(0,100));
-  if(start!=null) set(s, start);
   if(end!=null) set(e, end);
   if(per){ for(var i=0;i<per.options.length;i++){ if(per.options[i].text.trim().toLowerCase()===(t.personal?'yes':'no')){ per.selectedIndex=i; } } set(per, per.value); }
   var dateSet='kept', dateBefore=dt?dt.value:'';
@@ -240,11 +240,12 @@ class MpgActivity : Activity() {
             dbg("filled", JSONObject().put("trip", idx + 1).put("result", r))
             if (!r.optBoolean("ok")) { show("${head()}\nWaiting for MPG's Create New Trip form…"); return@evaluateJavascript }
             awaitingSave = true; filledUrl = web.url ?: ""
-            val start = r.opt("start"); val end = r.opt("end"); val mpgStart = r.opt("mpgStart")
-            var msg = "${head()}\nOdometer $start → $end. Check the yellow fields, then tap Save."
-            if (t.isNull("startOdo") && mpgStart != null && mpgStart != JSONObject.NULL) msg += "\nStarting odometer is MPG's own; ending = start + ${t.optInt("miles")} mi measured by Companion."
-            else if (mpgStart is Number && start is Number && Math.abs(mpgStart.toInt() - start.toInt()) > 1)
-                msg += "\nNote: MPG suggested $mpgStart as the starting odometer; Companion used $start from your odometer readings."
+            val start = r.opt("start"); val end = r.opt("end")
+            var msg = "${head()}\nOdometer $start (MPG) → $end. Check the yellow fields, then tap Save."
+            if (t.isNull("endOdo")) msg += "\nEnding = MPG's start + ${t.optInt("miles")} mi measured by Companion."
+            val est = t.opt("estStart")
+            if (start is Number && est is Number && Math.abs(start.toInt() - est.toInt()) > 2)
+                msg += "\nHeads up: Companion expected about $est at the start. If MPG's number is wrong, fix it here and update your odometer in Companion's Settings."
             show(msg)
             if (debug) snapshot("after fill")
         }
@@ -282,24 +283,19 @@ class MpgActivity : Activity() {
             return EditText(this).apply { setText(value); setSingleLine(); if (number) inputType = InputType.TYPE_CLASS_NUMBER; box.addView(this) }
         }
         val now = java.util.Calendar.getInstance()
-        val dateBox = field("Date of trip (MM/DD/YYYY)", "%02d/%02d/%d".format(now.get(java.util.Calendar.MONTH) + 1, now.get(java.util.Calendar.DAY_OF_MONTH), now.get(java.util.Calendar.YEAR)), false)
         val purpose = field("Purpose / Description", "TEST from Companion - please delete", false)
-        val start = field("Starting odometer", Store.get(this, "odoLast", "").let { try { JSONObject(it).optDouble("mi").toInt().toString() } catch (_: Exception) { "" } }, true)
-        val end = field("Ending odometer", "", true)
+        val end = field("Ending odometer (MPG fills in the date and starting odometer)", "", true)
         box.addView(TextView(this).apply { text = "Personal use"; textSize = 13f; setPadding(0, dp(8), 0, 0) })
         val per = Spinner(this).apply { adapter = ArrayAdapter(this@MpgActivity, android.R.layout.simple_spinner_dropdown_item, listOf("No", "Yes")) }
         box.addView(per)
         box.addView(TextView(this).apply { text = "This saves a real trip in MPG. Use test numbers you'll recognize, and delete the trip in MPG afterwards."; textSize = 12f; setPadding(0, dp(10), 0, dp(4)); setTextColor(Color.parseColor("#8A4B08")) })
         AlertDialog.Builder(this).setTitle("Test trip").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Fill in MPG") { _, _ ->
-                val s = start.text.toString().toIntOrNull(); val e = end.text.toString().toIntOrNull()
-                val dm = Regex("^(\\d{1,2})/(\\d{1,2})/(\\d{4})$").find(dateBox.text.toString().trim())
-                if (s == null || e == null || e < s || dm == null) { Toast.makeText(this, "Enter a date (MM/DD/YYYY) and odometer numbers, with the ending one not lower than the starting one.", Toast.LENGTH_LONG).show(); web.postDelayed({ testDialog() }, 300); return@setPositiveButton }
-                val (mm, dd, yy) = dm.destructured
-                val isToday = mm.toInt() == now.get(java.util.Calendar.MONTH) + 1 && dd.toInt() == now.get(java.util.Calendar.DAY_OF_MONTH) && yy.toInt() == now.get(java.util.Calendar.YEAR)
-                val t = JSONObject().put("purpose", purpose.text.toString().take(100)).put("startOdo", s).put("endOdo", e).put("miles", e - s)
+                val e = end.text.toString().toIntOrNull()
+                if (e == null) { Toast.makeText(this, "Enter the ending odometer.", Toast.LENGTH_LONG).show(); web.postDelayed({ testDialog() }, 300); return@setPositiveButton }
+                val t = JSONObject().put("purpose", purpose.text.toString().take(100)).put("endOdo", e)
                     .put("personal", per.selectedItemPosition == 1).put("label", "Test trip")
-                val d = JSONObject().put("y", yy.toInt()).put("m", mm.toInt()).put("d", dd.toInt()).put("today", isToday)
+                val d = JSONObject().put("y", now.get(java.util.Calendar.YEAR)).put("m", now.get(java.util.Calendar.MONTH) + 1).put("d", now.get(java.util.Calendar.DAY_OF_MONTH)).put("today", true)
                 dbg("test trip entered", JSONObject().put("trip", t).put("date", d))
                 web.evaluateJavascript(fillJs(t, d)) { res ->
                     val r = parse(res); dbg("filled", JSONObject().put("trip", "test").put("result", r))
@@ -308,7 +304,7 @@ class MpgActivity : Activity() {
                     show("TEST: the form is filled in (yellow). Look it over.")
                     web.postDelayed({
                         AlertDialog.Builder(this).setTitle("Submit test trip?")
-                            .setMessage("Companion will now tap Save in MPG for this test trip:\n\n${purpose.text}\nOdometer $s → $e (${e - s} mi)\nPersonal: ${if (per.selectedItemPosition == 1) "Yes" else "No"}\nDate: ${r.optString("dateAfter")}\n\nIt becomes a real trip in MPG; delete it afterwards.")
+                            .setMessage("Companion will now tap Save in MPG for this test trip:\n\n${purpose.text}\nOdometer ${r.opt("start")} (MPG) → $e\nPersonal: ${if (per.selectedItemPosition == 1) "Yes" else "No"}\nDate: ${r.optString("dateAfter")}\n\nIt becomes a real trip in MPG; delete it afterwards.")
                             .setPositiveButton("Submit") { _, _ -> submitTest() }
                             .setNegativeButton("Not yet") { _, _ -> show("TEST: not submitted. Check the form, then tap Save yourself or Enter test trip again.") }
                             .show()

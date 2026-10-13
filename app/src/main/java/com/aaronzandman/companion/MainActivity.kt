@@ -172,6 +172,7 @@ class MainActivity : Activity() {
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
                     .put("debug", Store.get(c, "debug", "0") == "1")
+                    .put("odoBase", try { JSONObject(Store.get(c, "odoBase", "")) } catch (_: Exception) { JSONObject.NULL })
                     .put("home", Store.get(c, "home", "").let { if (it.isEmpty()) JSONObject.NULL else JSONObject(it) }))
                 .toString()
         }
@@ -391,6 +392,10 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun setSetting(key: String, value: String) {
+            if (key == "odoBase") {   // {"mi": whole miles, "t": time entered}
+                try { val o = JSONObject(value); val mi = o.getDouble("mi"); if (mi in 0.0..2_000_000.0) Store.put(this@MainActivity, key, JSONObject().put("mi", Math.round(mi)).put("t", System.currentTimeMillis()).toString()) } catch (_: Exception) {}
+                return
+            }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
             if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "debug")) Store.put(this@MainActivity, key, value)
         }

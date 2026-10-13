@@ -145,6 +145,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div><b id="tStop">0.00</b><span>Other stops (hrs)</span></div>
       </div>
       <div class="hint" id="payNote" style="margin-top:6px"></div>
+      <div class="warn" id="odoWarn" hidden style="margin:10px 0 0"></div>
     </div>
     <div class="card">
       <h2>Today</h2>
@@ -183,6 +184,12 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="histHint" style="margin-top:4px"></div></div>
       <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store".</span></span>
         <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option></select></label>
+    </div>
+    <div class="card" id="odoCard">
+      <h2>Odometer</h2>
+      <div class="hint">Enter the van's odometer now and then (about once a week). Between entries, Companion adds the miles you drive by GPS. With the odometer adapter connected, its readings are used instead.</div>
+      <div id="odoNow" style="margin:8px 0;font-weight:600"></div>
+      <div class="row" style="align-items:center"><input type="text" id="odoIn" inputmode="numeric" placeholder="Current odometer" style="flex:1;min-width:0"><button class="btn" style="width:auto;margin:0" id="odoSave">Save</button></div>
     </div>
     <div class="card">
       <h2>Home location</h2>
@@ -377,6 +384,10 @@ function render(){
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
+  const est=odoEstimate(Date.now()), age=odoAge(), recentAdapter=(S.odo||[]).some(o=>Date.now()-o.t<7*864e5);
+  $("odoNow").textContent = est ? `About ${Math.round(est.v).toLocaleString()} now`+(st.odoBase?` · you entered ${st.odoBase.mi.toLocaleString()} on ${new Date(st.odoBase.t).toLocaleDateString()}`:"")+(recentAdapter?" · adapter connected":"") : "No odometer reading yet. Enter it below.";
+  const stale=!recentAdapter&&(age===null||age>7);
+  $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');$('odoIn').focus();return false">Open Settings</a>` : "";
   $("debugOn").checked=!!st.debug; $("mpgTest").hidden=!st.debug;
   $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
@@ -566,6 +577,26 @@ function odoAtTime(t){
   const v=g?odoInterp(t,g):null; if(v!==null) return v;
   const o=odoAt(t); return o?o.mi:null;
 }
+// Odometer at any moment: the adapter's reading when there is one; otherwise the newest known reading before
+// that moment (one you entered in Settings, or an adapter reading) plus the GPS miles driven since.
+function gpsMilesBetween(a,b){
+  let m=0; allSegs().forEach(g=>{ if(g.type!=="DRIVE"||g.end<=a||g.start>=b) return;
+    const x=Math.max(a,g.start), y=Math.min(b,g.end), ga=gpsAt(g,x), gb=gpsAt(g,y);
+    if(ga!==null&&gb!==null) m+=(gb-ga)/1609.344; else if(g.m) m+=g.m/1609.344*((y-x)/Math.max(1,g.end-g.start)); });
+  return m;
+}
+function odoEstimate(t){
+  const direct=odoAtTime(t); if(direct!==null) return {v:direct,src:"adapter"};
+  const base=[...(S.odo||[]).map(o=>({mi:o.mi,t:o.t})),...((S.settings||{}).odoBase?[S.settings.odoBase]:[])];
+  if(!base.length) return null;
+  const before=base.filter(b=>b.t<=t).sort((x,y)=>y.t-x.t)[0], after=base.filter(b=>b.t>t).sort((x,y)=>x.t-y.t)[0];
+  if(before) return {v:before.mi+gpsMilesBetween(before.t,t),src:"estimate"};
+  return {v:after.mi-gpsMilesBetween(t,after.t),src:"estimate"};
+}
+function odoAge(){ // days since the newest odometer reading (entered or from the adapter)
+  const ts=[...(S.odo||[]).map(o=>o.t),...((S.settings||{}).odoBase?[S.settings.odoBase.t]:[])];
+  return ts.length?(Date.now()-Math.max(...ts))/864e5:null;
+}
 function placeName(g){
   if(!g) return null;
   if(g.type==="STORE"){ const si=store(g.store); return `${g.store}${si.city?" "+si.city:""}`; }
@@ -591,11 +622,11 @@ function mpgTrips(segs,live){
   // whole-mile odometers, chained so each trip starts where the last one ended
   let prevEnd=null;
   trips.forEach(t=>{
-    const a=odoAtTime(t.start), b=odoAtTime(t.end);
-    let s=prevEnd!==null?prevEnd:(a!==null?Math.round(a):null);
-    let e=b!==null?Math.round(b):(s!==null?s+Math.round(t.miles):null);
+    const a=odoEstimate(t.start), b=odoEstimate(t.end);
+    let s=prevEnd!==null?prevEnd:(a?Math.round(a.v):null);
+    let e=b?Math.round(b.v):(s!==null?s+Math.round(t.miles):null);
     if(s!==null&&e!==null&&e<s) e=s;
-    t.startOdo=s; t.endOdo=e; t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
+    t.startOdo=s; t.endOdo=e; t.adapter=!!(b&&b.src==="adapter"); t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
     t.purpose=`${t.from} to ${t.to}`+(t.part?` (${t.part})`:"");
     t.purpose=t.purpose.slice(0,100); t.key=dayKey(t.start)+"@"+t.start; prevEnd=e;
   });
@@ -608,21 +639,25 @@ function renderMpg(){
   sel.innerHTML=keys.map(k=>{ const [y,m,d]=k.split("-").map(Number); return `<option value="${k}">${k===today?"Today":new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"})}</option>`; }).join("");
   if(keys.includes(keep)) sel.value=keep;
   const k=sel.value, segs=segsForDay(k), live=segs.some(g=>g.live), trips=mpgTrips(segs,live), done=S.mpgDone||{};
-  $("mpgList").innerHTML = trips.length ? trips.map((t,i)=>`<div class="trip${done[t.key]?" done":""}"><span class="n">${i+1}</span><div><b>${esc(t.from)} → ${esc(t.to)}</b>${t.part?` <span class="hint">(${esc(t.part)})</span>`:""}<div class="hint">${tm(t.start)}–${tm(t.end)} · Personal: ${t.personal?"Yes":"No"}${done[t.key]?" · ✓ logged":""}</div></div><div class="r">${t.mi!=null?t.mi+" mi":"—"}${t.gps?" ≈":""}<div class="hint">${t.startOdo!=null?t.startOdo+" → "+t.endOdo:"odometer from MPG"}</div></div></div>`).join("")
+  $("mpgList").innerHTML = trips.length ? trips.map((t,i)=>`<div class="trip${done[t.key]?" done":""}"><span class="n">${i+1}</span><div><b>${esc(t.from)} → ${esc(t.to)}</b>${t.part?` <span class="hint">(${esc(t.part)})</span>`:""}<div class="hint">${tm(t.start)}–${tm(t.end)} · Personal: ${t.personal?"Yes":"No"}${done[t.key]?" · ✓ logged":""}</div></div><div class="r">${t.mi!=null?t.mi+" mi":"—"}${t.gps?" ≈":""}<div class="hint">${t.startOdo!=null?(t.adapter?"":"≈")+t.startOdo+" → "+t.endOdo:"start from MPG"}</div></div></div>`).join("")
     : `<div class="empty">No drives recorded that day.</div>`;
   const left=trips.filter(t=>!done[t.key]).length;
   $("mpgBtn").disabled=!left||live; $("mpgBtn").textContent=left?`Log ${left} trip${left>1?"s":""} in MPG`:"All trips logged";
-  $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : trips.some(t=>t.startOdo==null) ? "No odometer readings for some trips: MPG's own starting odometer will be used, plus the miles Companion measured." : trips.some(t=>t.gps) ? "≈ miles are from GPS (no odometer adapter reading)." : "";
+  $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : "MPG fills in the date and starting odometer. Companion fills in the description, ending odometer and Personal." + (trips.some(t=>!t.adapter)?" Without the adapter, ending odometer = MPG's start + the miles Companion measured (≈ numbers here are estimates).":"");
 }
 $("mpgDay").onchange=renderMpg;
 $("mpgTest").onclick=()=>{ if(confirm("Debug test: MPG opens, you type a test trip, and Companion submits it after you confirm. It becomes a real trip in MPG that you'll need to delete. Continue?")){ track("mpg-test"); A.openMpgTest(); } };
+$("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-9]/g,""),10);
+  if(!(v>0&&v<2000000)){ toast("Enter the odometer reading in miles, for example 123456."); return; }
+  const est=odoEstimate(Date.now()); if(est&&Math.abs(est.v-v)>500&&!confirm(`That's ${Math.round(Math.abs(est.v-v)).toLocaleString()} miles from Companion's estimate (${Math.round(est.v).toLocaleString()}). Save ${v.toLocaleString()} anyway?`)) return;
+  A.setSetting("odoBase",JSON.stringify({mi:v})); $("odoIn").value=""; toast("Odometer saved."); refresh(); };
 $("debugOn").onchange=e=>{ A.setSetting("debug",e.target.checked?"1":"0"); refresh(); };
 $("mpgBtn").onclick=()=>{
   const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};
   const trips=mpgTrips(segs,false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="(");
   if(!trips.length){ toast("Nothing left to log for that day."); return; }
   const [y,m,d]=k.split("-").map(Number);
-  A.openMpg(JSON.stringify({date:{y,m,d,today:k===dayKey(Date.now())},trips:trips.map(t=>({key:t.key,purpose:t.purpose,startOdo:t.startOdo,endOdo:t.endOdo,miles:Math.round(t.miles),personal:t.personal,label:`${t.from} → ${t.to}${t.part?" ("+t.part+")":""}`}))})); track("mpg-open");
+  A.openMpg(JSON.stringify({date:{y,m,d,today:k===dayKey(Date.now())},trips:trips.map(t=>({key:t.key,purpose:t.purpose,estStart:t.startOdo,endOdo:t.adapter?t.endOdo:null,miles:t.mi!=null?t.mi:Math.round(t.miles),personal:t.personal,label:`${t.from} → ${t.to}${t.part?" ("+t.part+")":""}`}))})); track("mpg-open");
 };
 function renderMail(){
   const st=S.settings||{}, sel=$("mailDay"), keep=sel.value;
