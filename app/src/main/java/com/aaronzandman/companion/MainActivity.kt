@@ -497,7 +497,7 @@ class MainActivity : Activity() {
         /** Quietly gets the latest odometer and oil life from Ford (at most every 30 minutes), then refreshes the screen. */
         @JavascriptInterface fun fordRefresh() {
             val c = this@MainActivity
-            if (!Tier.ford(c) || !Ford.connected(c) || System.currentTimeMillis() - (Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L) < 30 * 60_000L) return
+            if (!Tier.ford(c) || !Ford.connected(c) || !Ford.autoReadDue(c) || System.currentTimeMillis() - (Store.get(c, "fordFetch", "0").toLongOrNull() ?: 0L) < 30 * 60_000L) return
             Store.put(c, "fordFetch", System.currentTimeMillis().toString())
             Thread { Ford.readMiles(c)?.let { (mi, t) -> Obd.record(c, t, mi) }; runOnUiThread { web.evaluateJavascript("refresh()", null) } }.start()
         }

@@ -76,6 +76,7 @@ object Ford {
                 onWait?.invoke(((wait + 999) / 1000).toInt()); Thread.sleep(wait)
             }
             val r = request(c, path)
+            Store.put(c, "fordLastCall", System.currentTimeMillis().toString())
             if (r.first != 429) {
                 if (path == "garage" && r.first in 200..299) Store.put(c, "fordGarage", JSONObject().put("t", System.currentTimeMillis()).put("body", r.second).toString())
                 return@synchronized r
@@ -86,6 +87,11 @@ object Ford {
         }
         Pair(429, "")
     }
+
+    /** Automatic reads (odometer while driving, on opening the app) wait at least this long after any Ford request. */
+    const val AUTO_GAP_MS = 5 * 60_000L
+    /** True when it's been [AUTO_GAP_MS] since Companion last asked Ford anything (buttons you tap don't wait). */
+    fun autoReadDue(c: Context) = System.currentTimeMillis() - (Store.get(c, "fordLastCall", "0").toLongOrNull() ?: 0L) >= AUTO_GAP_MS
 
     /** Ford's garage answer (the vehicle itself) saved at sign-in or the last ask, if newer than [maxAgeMs]. */
     fun cachedGarage(c: Context, maxAgeMs: Long): Pair<Long, String>? = try {

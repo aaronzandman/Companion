@@ -118,10 +118,10 @@ class TrackerService : Service(), LocationListener {
         }.start()
     }
 
-    /** Without the adapter: ask Ford for the odometer (at most once a minute). Ford's own time stamp is used. */
+    /** Without the adapter: ask Ford for the odometer (at most once every 5 minutes). Ford's own time stamp is used. */
     private fun readFord() {
         if (!Ford.useForOdometer(this)) return
-        val now = System.currentTimeMillis(); if (now - lastFordTry < 60_000L || !odoBusy.compareAndSet(false, true)) return
+        val now = System.currentTimeMillis(); if (now - lastFordTry < Ford.AUTO_GAP_MS || !Ford.autoReadDue(this) || !odoBusy.compareAndSet(false, true)) return
         lastFordTry = now
         Thread {
             try { Ford.readMiles(this)?.let { (mi, t) -> if (System.currentTimeMillis() - t < 15 * 60_000L) Obd.record(this, t, mi) } } finally { odoBusy.set(false) }
