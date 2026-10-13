@@ -28,7 +28,7 @@ object Ford {
         if (secret.isNotBlank()) Store.put(c, "fordSecret", secret.trim())
     }
 
-    fun disconnect(c: Context) { listOf("fordAccess", "fordRefresh", "fordExp", "fordVehicle").forEach { Store.put(c, it, "") } }
+    fun disconnect(c: Context) { listOf("fordAccess", "fordRefresh", "fordExp", "fordVehicle", "fordGarage").forEach { Store.put(c, it, "") } }
 
     /** The Ford sign-in page. [state] must be 16 characters or fewer (Ford's limit). */
     fun authUrl(c: Context, state: String): String = Uri.parse(AUTH).buildUpon()
@@ -61,8 +61,39 @@ object Ford {
         } catch (e: Exception) { "Couldn't reach Ford: ${e.javaClass.simpleName}" }
     }
 
-    /** GET a FordConnect Query path ("garage", "telemetry"). Refreshes the sign-in when needed. */
-    fun get(c: Context, path: String): Pair<Int, String> {
+    /** When Ford's rate limit lets us ask again (from its "Please wait N seconds" answers). Shared by every caller. */
+    @Volatile private var retryAt = 0L
+    private val lock = Any()
+
+    /** GET a FordConnect Query path ("garage", "telemetry"). Refreshes the sign-in when needed.
+     *  Ford allows only so many requests; when it says to wait, the next call waits (if [patient]) or skips.
+     *  [onWait] is told how many seconds we're waiting. Run off the main thread. */
+    fun get(c: Context, path: String, patient: Boolean = false, onWait: ((Int) -> Unit)? = null): Pair<Int, String> = synchronized(lock) {
+        for (attempt in 0..1) {
+            val wait = retryAt - System.currentTimeMillis()
+            if (wait > 0) {
+                if (!patient || wait > 70_000L) return@synchronized Pair(429, "{\"message\":\"Ford asked us to wait ${(wait + 999) / 1000} more seconds before asking again.\"}")
+                onWait?.invoke(((wait + 999) / 1000).toInt()); Thread.sleep(wait)
+            }
+            val r = request(c, path)
+            if (r.first != 429) {
+                if (path == "garage" && r.first in 200..299) Store.put(c, "fordGarage", JSONObject().put("t", System.currentTimeMillis()).put("body", r.second).toString())
+                return@synchronized r
+            }
+            val secs = Regex("wait (\\d+) second").find(r.second)?.groupValues?.get(1)?.toIntOrNull() ?: 30
+            retryAt = System.currentTimeMillis() + secs * 1000L + 1500L
+            if (!patient || attempt == 1) return@synchronized r
+        }
+        Pair(429, "")
+    }
+
+    /** Ford's garage answer (the vehicle itself) saved at sign-in or the last ask, if newer than [maxAgeMs]. */
+    fun cachedGarage(c: Context, maxAgeMs: Long): Pair<Long, String>? = try {
+        val j = JSONObject(Store.get(c, "fordGarage", "")); val t = j.optLong("t")
+        if (System.currentTimeMillis() - t < maxAgeMs && j.optString("body").isNotBlank()) Pair(t, j.optString("body")) else null
+    } catch (_: Exception) { null }
+
+    private fun request(c: Context, path: String): Pair<Int, String> {
         if (System.currentTimeMillis() > (Store.get(c, "fordExp", "0").toLongOrNull() ?: 0L)) refresh(c)?.let { return Pair(401, it) }
         return try {
             val con = URL("$QUERY/$path").openConnection() as HttpURLConnection

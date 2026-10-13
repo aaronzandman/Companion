@@ -479,12 +479,18 @@ class MainActivity : Activity() {
             Thread {
                 val c = this@MainActivity
                 val out = JSONObject().put("fetched", java.text.DateFormat.getDateTimeInstance().format(java.util.Date()))
-                for (path in listOf("garage", "telemetry")) {
-                    val (code, text) = Ford.get(c, path)
-                    val body: Any = try { if (text.trim().startsWith("[")) JSONArray(text) else JSONObject(text) } catch (_: Exception) { text }
-                    out.put(path, JSONObject().put("status", code).put("data", body))
-                    if (path == "telemetry" && body is JSONObject) Ford.saveExtras(c, body)
-                }
+                fun parse(text: String): Any = try { if (text.trim().startsWith("[")) JSONArray(text) else JSONObject(text) } catch (_: Exception) { text }
+                val df = java.text.DateFormat.getDateTimeInstance()
+                // The vehicle itself rarely changes: reuse what Ford sent in the last week, so the one request goes to telemetry.
+                val g = Ford.cachedGarage(c, 7 * 86_400_000L)
+                if (g != null) out.put("garage", JSONObject().put("status", 200).put("saved", df.format(java.util.Date(g.first))).put("data", parse(g.second)))
+                else { val (code, text) = Ford.get(c, "garage", patient = true) { s -> runOnUiThread { web.evaluateJavascript("onFordWait($s)", null) } }
+                    out.put("garage", JSONObject().put("status", code).put("data", parse(text))) }
+                val (code, text) = Ford.get(c, "telemetry", patient = true) { s -> runOnUiThread { web.evaluateJavascript("onFordWait($s)", null) } }
+                val body = parse(text)
+                out.put("telemetry", JSONObject().put("status", code).put("data", body))
+                if (code in 200..299 && body is JSONObject) Ford.saveExtras(c, body)
+                out.put("fetched", df.format(java.util.Date()))
                 runOnUiThread { web.evaluateJavascript("onFordRaw(${JSONObject.quote(out.toString(2))})", null) }
             }.start()
         }
@@ -500,7 +506,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun fordTest() {
             Thread {
                 val c = this@MainActivity
-                val (code, text) = Ford.get(c, "telemetry")
+                val (code, text) = Ford.get(c, "telemetry", patient = true)
                 val res = JSONObject().put("code", code)
                 try {
                     val j = JSONObject(text); val m = j.optJSONObject("metrics"); Ford.saveExtras(c, j)

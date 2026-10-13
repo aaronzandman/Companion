@@ -774,6 +774,7 @@ $("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSec
   if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
   A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
 $("fordRawBtn").onclick=()=>{ $("fordRawBtn").disabled=true; $("fordRawBtn").textContent="Asking Ford…"; A.fordRaw(); };
+window.onFordWait=n=>{ let left=n; const b=$("fordRawBtn"), tick=()=>{ if(!b.disabled) return; b.textContent=left>0?`Ford asked us to wait… ${left} s`:"Asking Ford…"; if(left-->0) setTimeout(tick,1000); }; tick(); };
 window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };
 $("frCopy").onclick=()=>A.copy($("frText").textContent);
 $("frClose").onclick=()=>$("fordRawDlg").hidden=true;
