@@ -38,6 +38,10 @@ button{font:inherit}
 .item b{display:block}
 .meta{font-size:13px;color:var(--muted)}
 .pri{display:inline-block;border-radius:4px;padding:0 6px;color:#fff;font-size:12px;font-weight:700;background:#6B7785}
+.age{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;border:1px solid transparent}
+.age.g{background:#DDF3E4;color:#14532D;border-color:#9AD3AE}.age.y{background:#FFF4BF;color:#5C4400;border-color:#E9CF55}
+.age.o{background:#FFE0C2;color:#7A3500;border-color:#F0A060}.age.r{background:#B3261E;color:#fff}
+@media (prefers-color-scheme:dark){.age.g{background:#173B25;color:#BDF0CC;border-color:#2F6B45}.age.y{background:#3D3410;color:#FFE98A;border-color:#7A6A1F}.age.o{background:#4A2A10;color:#FFC690;border-color:#8A4F1F}}
 .pri.s1{background:#8E1B1B}.pri.s2{background:#C8372D}.pri.s3{background:#C98A12}
 .tag{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;background:var(--soft);color:var(--muted);border:1px solid var(--line)}
 .tag.new{background:#1E4E8C;color:#fff;border-color:#1E4E8C}
@@ -460,6 +464,9 @@ function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show");
 const hu=ms=>Math.ceil(Math.max(0,ms)/36000);          // whole hundredths of an hour, rounded up
 const fh=h=>(h/100).toFixed(2);
 function hm(ms){ return fh(hu(ms)); }
+// Days since the call came in (its dispatch text): 0–5 green, 6 yellow, 7–8 orange, 9+ red. Same as Route Planner.
+function ageChip(t){ if(!t) return ""; const d=Math.max(0,Math.floor((Date.now()-t)/864e5)), c=d<=5?"g":d===6?"y":d<=8?"o":"r";
+  return `<span class="age ${c}" title="Days since this call came in">📅 ${d} day${d===1?"":"s"}</span>`; }
 function tm(t){ return new Date(t).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}); }
 function when(t){ const d=new Date(t), today=new Date().toDateString()===d.toDateString(); return (today?"Today ":d.toLocaleDateString(undefined,{month:"numeric",day:"numeric"})+" ")+tm(t); }
 function store(n){ if(!(n in info)){ try{ info[n]=JSON.parse(A.storeInfo(n)); }catch(e){ info[n]={}; } } return info[n]; }
@@ -508,7 +515,7 @@ function render(){
     return `<div class="item"><input type="checkbox" data-o="${esc(d.order)}" ${picked.has(d.order)?"checked":""} aria-label="Select ${esc(d.order)}">
       <div class="d"><b>${esc(d.description)}</b>
         <div class="meta">Store ${esc(d.store)}${si.city?" – "+esc(si.city):""} · #${esc(d.order)}</div>
-        <div class="meta"><span class="pri s${d.severity}">Sev ${d.severity}</span> ${when(d.receivedAt)} ${d.sent?'<span class="tag">Sent ✓</span>':'<span class="tag new">New</span>'}</div></div>
+        <div class="meta"><span class="pri s${d.severity}">Sev ${d.severity}</span> ${ageChip(d.receivedAt)} ${when(d.receivedAt)} ${d.sent?'<span class="tag">Sent ✓</span>':'<span class="tag new">New</span>'}</div></div>
       <button class="x" data-del="${esc(d.order)}" aria-label="Remove">×</button></div>`; }).join("")
     : `<div class="empty">${past.length?"No dispatch texts in the last 14 days.":"No dispatch texts yet. New ones show up here as they arrive."}</div>`;
   $("list").querySelectorAll("input[data-o]").forEach(cb=>cb.onchange=()=>{ cb.checked?picked.add(cb.dataset.o):picked.delete(cb.dataset.o); sendHint(); });
