@@ -88,10 +88,12 @@ object Ford {
         } catch (_: Exception) { null }
     }
 
-    fun parseTime(s: String): Long? = try {
-        val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-        val base = f.parse(s.take(19))?.time ?: return null
-        val ms = Regex("\\.(\\d{1,3})").find(s)?.groupValues?.get(1)?.padEnd(3, '0')?.toLong() ?: 0L
-        base + ms
-    } catch (_: Exception) { null }
+    fun parseTime(s: String): Long? {
+        return try {
+            val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            val base = f.parse(s.take(19))?.time ?: return null
+            val ms = Regex("\\.(\\d{1,3})").find(s)?.groupValues?.get(1)?.padEnd(3, '0')?.toLong() ?: 0L
+            base + ms
+        } catch (_: Exception) { null }
+    }
 }
