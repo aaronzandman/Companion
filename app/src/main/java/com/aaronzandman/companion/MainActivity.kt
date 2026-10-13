@@ -160,6 +160,7 @@ class MainActivity : Activity() {
                     .put("sdk", Build.VERSION.SDK_INT))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
+                .put("mpgDone", try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() })
                 .put("odo", Obd.log(c))
                 .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
                     .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
@@ -366,6 +367,11 @@ class MainActivity : Activity() {
             runOnUiThread { openUrl(link) }
             Store.put(this@MainActivity, "historySent", System.currentTimeMillis().toString())
             return h.length()
+        }
+
+        /** Opens the MPG screen that fills in each trip for you to check and Save. */
+        @JavascriptInterface fun openMpg(json: String) = runOnUiThread {
+            startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("data", json))
         }
 
         @JavascriptInterface fun remove(orders: String) {

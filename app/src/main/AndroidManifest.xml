@@ -46,6 +46,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".MpgActivity"
+            android:exported="false"
+            android:label="Log trips in MPG"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+
         <receiver
             android:name=".SmsReceiver"
             android:exported="true"

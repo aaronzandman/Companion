@@ -83,6 +83,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .ack input{width:22px;height:22px;flex:none;accent-color:var(--road)}
 .devd{margin:6px 0 0 30px;font-size:13px}.devd summary{color:var(--road);font-weight:600}
 .devd pre{white-space:pre-wrap;word-break:break-word;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.45 ui-monospace,monospace;margin:6px 0 0}
+.trip{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.trip .n{font-weight:700;color:var(--muted)}.trip .r{text-align:right;font-variant-numeric:tabular-nums}.trip.done{opacity:.6}
 .uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px;flex-wrap:wrap}.uidbox input{min-width:0;flex:1 1 120px}
 .ul{margin:6px 0;padding-left:20px;font-size:13px}.ul li{margin:3px 0}
 #usageCard details summary{color:var(--road);font-weight:600;margin-top:8px}
@@ -156,6 +158,14 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <button class="btn" id="mailBtn">Email this day with Outlook</button>
       <div class="hint" style="margin-top:6px">Opens Outlook with the email filled in and a spreadsheet (.csv) of the day attached. Tap Send in Outlook.</div>
     </div>
+    <div class="card" id="mpgCard">
+      <h2>Log trips in MPG</h2>
+      <div class="hint">One trip per drive, the way you log them in MPG. Companion fills in each trip; you check it and tap Save in MPG.</div>
+      <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
+      <div id="mpgList"></div>
+      <button class="btn" id="mpgBtn">Log trips in MPG</button>
+      <div class="hint" id="mpgNote" style="margin-top:6px"></div>
+    </div>
   </section>
 
   <!-- SETTINGS -->
@@ -213,7 +223,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <p class="hint" style="margin:0 0 6px">To see how many people use Companion, on what phones and in which areas, the app sends a small anonymous count when you open it (once a day) and when you use certain features. It's always on, and everything it sends is listed here.</p>
       <details><summary>What's sent</summary><ul class="ul">
         <li>App and version, and which Route Planner you picked (for example <i id="usageEd"></i>)</li>
-        <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent past calls to History, sent feedback</li>
+        <li>What you used, by name only: opened, started or ended your day, emailed your time, sent calls to Route Planner, sent past calls to History, opened MPG trip logging, sent feedback</li>
         <li>Your anonymous ID (below), once a day, so you're counted as one person across days and devices</li>
         <li>Screen size, plus phone type and Android version (read from the app's built-in browser)</li>
         <li>General area (country and state), worked out by the counting service from your internet address. The address itself isn't stored.</li>
@@ -358,7 +368,7 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail();
+  renderMail(); renderMpg();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
@@ -541,6 +551,70 @@ window.onDayEnded=(start,end)=>{
   if(!st.workEmail || st.autoEmail===false) return;
   const segs=allSegs().filter(g=>g.start>=start-60e3 && g.start<=end).sort((a,b)=>a.start-b.start);
   if(segs.length) emailSegs(segs,dayName(new Date(start)),dayKey(start));
+};
+// ---- MPG trips: one trip per drive (home → store, store → store, store → home). A commute drive that runs past
+// 30 minutes becomes two trips (personal part, then work part, or the reverse at night). Odometers are whole miles,
+// and each trip starts where the last one ended.
+function odoAtTime(t){
+  const g=allSegs().find(x=>x.type==="DRIVE"&&t>=x.start-60e3&&t<=x.end+60e3);
+  const v=g?odoInterp(t,g):null; if(v!==null) return v;
+  const o=odoAt(t); return o?o.mi:null;
+}
+function placeName(g){
+  if(!g) return null;
+  if(g.type==="STORE"){ const si=store(g.store); return `${g.store}${si.city?" "+si.city:""}`; }
+  if(g.type==="HOME") return "Home";
+  if(g.type==="STOP"&&g.tag==="FUEL") return "Fuel stop";
+  return null;
+}
+function mpgTrips(segs,live){
+  const {pieces}=classify(segs,live), ps=pieces.slice().sort((a,b)=>a.start-b.start);   // time at home is "off the clock" but still marks arriving home
+  const trips=[]; let from=segs.length&&segs.slice().sort((a,b)=>a.start-b.start)[0].type==="HOME"?"Home":(S.settings||{}).home?"Home":"Start", leg=[], cur=null;
+  const closeLeg=to=>{ if(cur){ leg.push(cur); cur=null; }
+    leg.forEach((t,i)=>{ t.from=from; t.to=to; t.part=leg.length<2?"":t.personal?(i===0?"first 30 min, personal":"last 30 min, personal"):(i===0?"before the last 30 min":"after the first 30 min"); trips.push(t); }); leg=[]; };
+  ps.forEach(p=>{
+    const moving=p.pay!=="OFF"&&(p.type==="DRIVE"||(p.type==="STOP"&&p.tag!=="FUEL"&&(cur||leg.length)));
+    if(moving){
+      const personal=p.pay==="PERSONAL";
+      if(cur&&cur.personal!==personal){ leg.push(cur); cur=null; }
+      if(!cur) cur={start:p.start,end:p.end,personal,miles:0,gps:false,odoMiles:true};
+      cur.end=p.end; if(p.mi){ cur.miles+=p.mi.v; if(p.mi.src==="gps") cur.gps=true; }
+    } else { const pl=placeName(p.seg); if(pl&&(cur||leg.length)) closeLeg(pl); if(pl) from=pl; }
+  });
+  if(cur||leg.length) closeLeg(live?"(still driving)":"(no arrival recorded)");
+  // whole-mile odometers, chained so each trip starts where the last one ended
+  let prevEnd=null;
+  trips.forEach(t=>{
+    const a=odoAtTime(t.start), b=odoAtTime(t.end);
+    let s=prevEnd!==null?prevEnd:(a!==null?Math.round(a):null);
+    let e=b!==null?Math.round(b):(s!==null?s+Math.round(t.miles):null);
+    if(s!==null&&e!==null&&e<s) e=s;
+    t.startOdo=s; t.endOdo=e; t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
+    t.purpose=`${t.from} to ${t.to}`+(t.part?` (${t.part})`:"");
+    t.purpose=t.purpose.slice(0,100); t.key=dayKey(t.start)+"@"+t.start; prevEnd=e;
+  });
+  return trips;
+}
+function renderMpg(){
+  const sel=$("mpgDay"), keep=sel.value;
+  const keys=[...new Set(allSegs().map(g=>dayKey(g.start)))].sort().reverse().slice(0,30), today=dayKey(Date.now());
+  if(!keys.includes(today)) keys.unshift(today);
+  sel.innerHTML=keys.map(k=>{ const [y,m,d]=k.split("-").map(Number); return `<option value="${k}">${k===today?"Today":new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"})}</option>`; }).join("");
+  if(keys.includes(keep)) sel.value=keep;
+  const k=sel.value, segs=segsForDay(k), live=segs.some(g=>g.live), trips=mpgTrips(segs,live), done=S.mpgDone||{};
+  $("mpgList").innerHTML = trips.length ? trips.map((t,i)=>`<div class="trip${done[t.key]?" done":""}"><span class="n">${i+1}</span><div><b>${esc(t.from)} → ${esc(t.to)}</b>${t.part?` <span class="hint">(${esc(t.part)})</span>`:""}<div class="hint">${tm(t.start)}–${tm(t.end)} · Personal: ${t.personal?"Yes":"No"}${done[t.key]?" · ✓ logged":""}</div></div><div class="r">${t.mi!=null?t.mi+" mi":"—"}${t.gps?" ≈":""}<div class="hint">${t.startOdo!=null?t.startOdo+" → "+t.endOdo:"odometer from MPG"}</div></div></div>`).join("")
+    : `<div class="empty">No drives recorded that day.</div>`;
+  const left=trips.filter(t=>!done[t.key]).length;
+  $("mpgBtn").disabled=!left||live; $("mpgBtn").textContent=left?`Log ${left} trip${left>1?"s":""} in MPG`:"All trips logged";
+  $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : trips.some(t=>t.startOdo==null) ? "No odometer readings for some trips: MPG's own starting odometer will be used, plus the miles Companion measured." : trips.some(t=>t.gps) ? "≈ miles are from GPS (no odometer adapter reading)." : "";
+}
+$("mpgDay").onchange=renderMpg;
+$("mpgBtn").onclick=()=>{
+  const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};
+  const trips=mpgTrips(segs,false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="(");
+  if(!trips.length){ toast("Nothing left to log for that day."); return; }
+  const [y,m,d]=k.split("-").map(Number);
+  A.openMpg(JSON.stringify({date:{y,m,d,today:k===dayKey(Date.now())},trips:trips.map(t=>({key:t.key,purpose:t.purpose,startOdo:t.startOdo,endOdo:t.endOdo,miles:Math.round(t.miles),personal:t.personal,label:`${t.from} → ${t.to}${t.part?" ("+t.part+")":""}`}))})); track("mpg-open");
 };
 function renderMail(){
   const st=S.settings||{}, sel=$("mailDay"), keep=sel.value;
