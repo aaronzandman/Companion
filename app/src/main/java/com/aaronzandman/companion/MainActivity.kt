@@ -93,6 +93,17 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         intent.getStringExtra("tab")?.let { web.evaluateJavascript("showTab('$it')", null) }
         handlePlanner(intent)
+        if (intent.getBooleanExtra("install", false)) { intent.removeExtra("install"); install() }
+    }
+
+    private fun install() {
+        if (Updater.ready(this) == null) { Toast.makeText(this, "No update is waiting.", Toast.LENGTH_SHORT).show(); return }
+        if (!Updater.canInstall(this)) {
+            Toast.makeText(this, "Allow Companion to install updates, then come back and tap Install now.", Toast.LENGTH_LONG).show()
+            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
+            return
+        }
+        try { startActivity(Updater.installIntent(this)) } catch (e: Exception) { Toast.makeText(this, "Couldn't open the installer.", Toast.LENGTH_SHORT).show() }
     }
 
     /** From a new-call notification: send those calls to Route Planner with "reroute" or "keep". */
@@ -198,6 +209,8 @@ class MainActivity : Activity() {
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
                     .put("sdk", Build.VERSION.SDK_INT)
                     .put("battery", getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true)
+                    .put("install", Updater.canInstall(c))
+                    .put("bt", btOk()).put("btNeeded", Obd.enabled(c))
                     .put("maker", Build.MANUFACTURER.lowercase()))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
@@ -492,17 +505,19 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun open(url: String) = runOnUiThread { openUrl(url) }
 
-        /** Asks GitHub for the newest release; calls onUpdate(json) in the page. */
-        @JavascriptInterface fun checkUpdate() {
+        /** Checks GitHub for a newer Companion and downloads it; calls onUpdate(result). [force] skips the 6-hour wait. */
+        @JavascriptInterface fun checkUpdate(force: Boolean) {
             Thread {
-                val res = try {
-                    val con = URL("https://api.github.com/repos/AaronZandman/Companion/releases/latest").openConnection() as HttpURLConnection
-                    con.setRequestProperty("Accept", "application/vnd.github+json"); con.connectTimeout = 10_000; con.readTimeout = 10_000
-                    val j = JSONObject(con.inputStream.bufferedReader().readText())
-                    JSONObject().put("tag", j.optString("tag_name")).put("url", DOWNLOAD).toString()
-                } catch (e: Exception) { JSONObject().put("error", true).toString() }
-                runOnUiThread { web.evaluateJavascript("onUpdate($res)", null) }
+                val r = Updater.check(this@MainActivity, if (force) 0L else 6 * 3600_000L)
+                runOnUiThread { web.evaluateJavascript("onUpdate($r)", null) }
             }.start()
+        }
+
+        /** Opens Android's install screen for the downloaded update (or the setting to allow it first). */
+        @JavascriptInterface fun installUpdate() = runOnUiThread { install() }
+
+        @JavascriptInterface fun allowInstall() = runOnUiThread {
+            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } catch (_: Exception) { openAppSettings() }
         }
     }
 

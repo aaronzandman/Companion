@@ -87,6 +87,8 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .oilbar{height:16px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:8px 0 6px}
 .oilbar i{display:block;height:100%;border-radius:999px;transition:width .3s}
 .oilrow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.oilrow b{font:700 20px var(--sign)}
+.permrow{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+.permrow label{display:flex;gap:6px;align-items:center;margin-top:4px}
 .trip{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
 .trip .n{font-weight:700;color:var(--muted)}.trip .r{text-align:right;font-variant-numeric:tabular-nums}.trip.done{opacity:.6}
 .uidbox{margin-top:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px}.uidbox b{font:700 18px ui-monospace,monospace;letter-spacing:1px}.uidbox .row{align-items:center;margin-top:6px;flex-wrap:wrap}.uidbox input{min-width:0;flex:1 1 120px}
@@ -286,6 +288,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <button class="btn sec" id="updBtn">Check for updates</button>
+      <button class="btn sec" id="permCheckBtn">Check permissions</button>
       <button class="btn sec" id="appSet">Android app settings</button>
       <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates, when you send calls to Route Planner, and when you send your time log from Outlook.</p>
     </div>
@@ -317,6 +320,15 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="err" id="fbErr" role="alert"></div>
     <div class="row"><button type="button" class="btn sec" id="fbCancel">Cancel</button><button type="submit" class="btn" id="fbSend">Open in Outlook</button></div>
   </form>
+</div>
+<div id="permDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="permTitle" hidden>
+  <div class="box">
+    <h2 id="permTitle">A few things to turn on</h2>
+    <p class="hint" style="margin:0 0 6px">Companion works best with these allowed. Tap Allow for each one.</p>
+    <div id="permList"></div>
+    <div class="row" style="margin-top:10px"><button class="btn sec" id="permLater">Remind me later</button><button class="btn" id="permDone">Done</button></div>
+    <button class="btn sec" id="permNeverAll" style="border:0;text-decoration:underline">Don't remind me again</button>
+  </div>
 </div>
 <div id="toast" role="status"></div>
 <script>
@@ -857,19 +869,47 @@ function onObdTest(r){
   refresh();
 }
 let manualUpd=false;
-$("updBtn").onclick=()=>{ manualUpd=true; toast("Checking…"); A.checkUpdate(); };
+$("updBtn").onclick=()=>{ manualUpd=true; toast("Checking…"); A.checkUpdate(true); };
 function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), y=String(b).split(".").map(Number); for(let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)>(y[i]||0); } return false; }
+// Updates: Companion checks GitHub every 6 hours (and when you start your day), downloads a newer version in the
+// background, makes sure it's signed with Companion's own key, then offers one-tap install.
 function onUpdate(r){
   const u=$("upd");
   const manual=manualUpd; manualUpd=false;
-  if(r.error){ if(manual) toast("Couldn't check for updates."); return; }
-  if(r.tag && newer(r.tag,S.version)){ u.innerHTML=`<b>Companion ${esc(r.tag.replace(/^v/,""))} is available.</b> You have ${esc(S.version)}.<button class="btn" onclick="A.open('${r.url}')">Download update</button>`; u.classList.add("show"); }
-  else { u.classList.remove("show"); if(manual) toast("You have the newest version."); }
+  if(r.ready && r.tag){ u.innerHTML=`<b>Companion ${esc(r.tag.replace(/^v/,""))} is ready to install.</b> You have ${esc(S.version)}. Your data stays.<button class="btn" onclick="A.installUpdate()">Install now</button>`; u.classList.add("show"); return; }
+  if(r.error){ if(manual) toast(r.error==="download"?"The update didn't download completely. Try again later.":"Couldn't check for updates."); return; }
+  u.classList.remove("show"); if(manual) toast(r.skipped?"Checked recently. You have the newest version.":"You have the newest version.");
 }
 const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings"].includes(tab)) showTab(tab);
 setInterval(()=>{ if(!document.hidden) refresh(); },5000);
-// check for updates once a day
-try{ const last=+(localStorage.getItem("updAt")||0); if(Date.now()-last>864e5){ localStorage.setItem("updAt",Date.now()); A.checkUpdate(); } }catch(e){}
+// check for updates when the app opens and every 6 hours while it's open (the app limits real checks to every 6 hours)
+try{ A.checkUpdate(false); setInterval(()=>A.checkUpdate(false), 6*3600*1000); }catch(e){}
+// ---- startup permissions check ----
+const PERMS=[
+  ["sms","Read dispatch texts","So new calls show up automatically.",()=>A.askSms()],
+  ["location","Location","For the timer and personal/work miles.",()=>A.askLocation()],
+  ["notify","Notifications","For new calls, the timer, and updates.",()=>A.askNotify()],
+  ["battery","Run in the background","So Android's battery saver doesn't pause the timer or miss texts.",()=>A.askBattery()],
+  ["bt","Bluetooth","To read the odometer adapter.",()=>A.askBluetooth()],
+  ["install","Install updates","So Companion can install its own updates (you confirm each one).",()=>A.allowInstall()]
+];
+function missingPerms(){ const p=S.perm||{}; return PERMS.filter(([k])=> k==="bt" ? (p.btNeeded&&p.bt===false) : p[k]===false); }
+function permCheck(force){
+  const never=JSON.parse(localStorage.getItem("permNever")||"[]"), snooze=+(localStorage.getItem("permSnooze")||0);
+  const miss=missingPerms().filter(([k])=>force||!never.includes(k));
+  if(!miss.length){ $("permDlg").hidden=true; if(force) toast("Everything Companion needs is allowed."); return; }
+  if(!force&&Date.now()<snooze) return;
+  $("permList").innerHTML=miss.map(([k,t,why])=>`<div class="permrow"><div><b>${esc(t)}</b><div class="hint">${esc(why)}</div><label class="hint"><input type="checkbox" data-never="${k}"${never.includes(k)?" checked":""}> Don't remind me about this</label></div><button class="btn" style="width:auto;margin:0" data-perm="${k}">Allow</button></div>`).join("");
+  $("permList").querySelectorAll("[data-perm]").forEach(b=>b.onclick=()=>{ const f=PERMS.find(x=>x[0]===b.dataset.perm); if(f) f[3](); });
+  $("permList").querySelectorAll("[data-never]").forEach(c=>c.onchange=()=>{ const n=new Set(JSON.parse(localStorage.getItem("permNever")||"[]")); c.checked?n.add(c.dataset.never):n.delete(c.dataset.never); localStorage.setItem("permNever",JSON.stringify([...n])); });
+  $("permDlg").hidden=false;
+}
+$("permLater").onclick=()=>{ localStorage.setItem("permSnooze",Date.now()+864e5); $("permDlg").hidden=true; toast("I'll remind you tomorrow."); };
+$("permNeverAll").onclick=()=>{ localStorage.setItem("permNever",JSON.stringify(PERMS.map(p=>p[0]))); $("permDlg").hidden=true; toast("No more reminders. You can check anytime in Settings → About → Check permissions."); };
+$("permDone").onclick=()=>{ $("permDlg").hidden=true; };
+$("permCheckBtn").onclick=()=>{ refresh(); permCheck(true); };
+setTimeout(()=>permCheck(false),800);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&!$("permDlg").hidden){ refresh(); const m=missingPerms(); if(!m.length) $("permDlg").hidden=true; else permCheck(true); } });
 </script>
 </body>
 </html>

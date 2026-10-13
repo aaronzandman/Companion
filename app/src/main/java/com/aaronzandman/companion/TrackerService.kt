@@ -44,6 +44,8 @@ class TrackerService : Service(), LocationListener {
             moving()
         }
         readOdometer(System.currentTimeMillis())
+        // Starting the day is a good moment to look for an app update (at most every 6 hours).
+        Thread { val r = Updater.check(this, 6 * 3600_000L); if (r.optBoolean("ready") && !r.optBoolean("notified")) Notify.updateReady(this, r.optString("tag")) }.start()
         return START_STICKY
     }
 

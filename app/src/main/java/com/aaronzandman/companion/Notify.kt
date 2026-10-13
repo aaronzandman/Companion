@@ -17,12 +17,26 @@ object Notify {
     const val CH_DISPATCH = "dispatch"
     const val CH_TRACKER = "tracker"
     const val ID_TRACKER = 1
+    const val CH_UPDATE = "updates"
+    const val ID_UPDATE = 3
+
+    /** "Update ready" notification; tapping it opens Companion's install prompt. */
+    fun updateReady(c: Context, tag: String) {
+        channels(c)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val i = Intent(c, MainActivity::class.java).putExtra("install", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val n = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle("Companion ${tag.removePrefix("v")} is ready").setContentText("Tap to install the update. Your data stays.")
+            .setContentIntent(PendingIntent.getActivity(c, 77, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).setAutoCancel(true).build()
+        try { NotificationManagerCompat.from(c).notify(ID_UPDATE, n) } catch (_: SecurityException) {}
+    }
 
     fun channels(c: Context) {
         if (Build.VERSION.SDK_INT >= 26) {
             val nm = c.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel(CH_DISPATCH, "Dispatch texts", NotificationManager.IMPORTANCE_HIGH))
             nm.createNotificationChannel(NotificationChannel(CH_TRACKER, "Timer running", NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
         }
     }
 
