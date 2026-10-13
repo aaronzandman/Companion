@@ -191,6 +191,20 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div id="odoNow" style="margin:8px 0;font-weight:600"></div>
       <div class="row" style="align-items:center"><input type="text" id="odoIn" inputmode="numeric" placeholder="Current odometer" style="flex:1;min-width:0"><button class="btn" style="width:auto;margin:0" id="odoSave">Save</button></div>
     </div>
+    <div class="card" id="fordCard">
+      <h2>Ford connection</h2>
+      <div class="hint">Reads the van's odometer from Ford (FordConnect) when the odometer adapter isn't connected. Your Ford developer Client ID and Secret, and your Ford sign-in, are kept on this phone only.</div>
+      <div id="fordNow" style="margin:8px 0;font-weight:600"></div>
+      <div id="fordCreds">
+        <input type="text" id="fordId" placeholder="Client ID" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px">
+        <input type="password" id="fordSecret" placeholder="Client Secret" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
+        <button class="btn sec" id="fordSaveBtn">Save Ford app details</button>
+      </div>
+      <button class="btn" id="fordConnectBtn">Connect Ford</button>
+      <div class="row"><button class="btn sec" id="fordTestBtn">Test Ford data</button><button class="btn sec" id="fordOffBtn">Disconnect</button></div>
+      <label class="set"><span><b>Use Ford for the odometer</b><br><span class="hint">When the adapter isn't connected, ask Ford for the odometer while you drive (about every 2 minutes).</span></span><input type="checkbox" class="sw" id="fordUse"></label>
+      <pre id="fordOut" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
+    </div>
     <div class="card">
       <h2>Home location</h2>
       <div class="hint">Used to tell personal from work time and miles. Saved on this phone only and never sent anywhere.</div>
@@ -388,6 +402,10 @@ function render(){
   $("odoNow").textContent = est ? `About ${Math.round(est.v).toLocaleString()} now`+(st.odoBase?` · you entered ${st.odoBase.mi.toLocaleString()} on ${new Date(st.odoBase.t).toLocaleDateString()}`:"")+(recentAdapter?" · adapter connected":"") : "No odometer reading yet. Enter it below.";
   const stale=!recentAdapter&&(age===null||age>7);
   $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');$('odoIn').focus();return false">Open Settings</a>` : "";
+  const fd=st.ford||{};
+  $("fordNow").textContent = fd.connected ? `Connected${fd.vehicle?" to "+fd.vehicle:""}.` : fd.configured ? `Ford app details saved (Client ID …${fd.idEnd}). Tap Connect Ford to sign in.` : "Not set up. Enter the Client ID and Secret from Ford's developer portal.";
+  $("fordConnectBtn").hidden=!fd.configured||fd.connected; $("fordTestBtn").disabled=!fd.connected; $("fordOffBtn").disabled=!fd.connected;
+  $("fordCreds").hidden=!!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
   $("debugOn").checked=!!st.debug; $("mpgTest").hidden=!st.debug;
   $("homeNow").textContent = st.home ? `Home saved ${new Date(st.home.at).toLocaleDateString()} (accurate to about ${st.home.acc} m).` : "No home location saved yet. Save it while you're at home.";
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
@@ -651,6 +669,17 @@ $("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-
   if(!(v>0&&v<2000000)){ toast("Enter the odometer reading in miles, for example 123456."); return; }
   const est=odoEstimate(Date.now()); if(est&&Math.abs(est.v-v)>500&&!confirm(`That's ${Math.round(Math.abs(est.v-v)).toLocaleString()} miles from Companion's estimate (${Math.round(est.v).toLocaleString()}). Save ${v.toLocaleString()} anyway?`)) return;
   A.setSetting("odoBase",JSON.stringify({mi:v})); $("odoIn").value=""; toast("Odometer saved."); refresh(); };
+$("fordSaveBtn").onclick=()=>{ const id=$("fordId").value.trim(), sec=$("fordSecret").value.trim();
+  if(!/^[0-9a-f-]{20,}$/i.test(id)||sec.length<10){ toast("Enter both the Client ID and the Client Secret from Ford's developer portal."); return; }
+  A.fordSave(id,sec); $("fordId").value=""; $("fordSecret").value=""; toast("Saved on this phone. Now tap Connect Ford."); refresh(); };
+$("fordConnectBtn").onclick=()=>A.fordConnect();
+$("fordOffBtn").onclick=()=>{ if(confirm("Disconnect Ford? Companion forgets your Ford sign-in (your Client ID and Secret stay saved).")){ A.fordDisconnect(); refresh(); } };
+$("fordUse").onchange=e=>{ A.fordUse(e.target.checked); refresh(); };
+$("fordTestBtn").onclick=()=>{ $("fordTestBtn").disabled=true; $("fordTestBtn").textContent="Asking Ford…"; const o=$("fordOut"); o.style.display="none"; A.fordTest(); };
+window.onFordTest=r=>{ $("fordTestBtn").disabled=false; $("fordTestBtn").textContent="Test Ford data"; const o=$("fordOut"); o.style.display="block";
+  if(r.code===429){ o.textContent="Ford says to wait a minute between requests. Try again shortly."; return; }
+  if(!(r.code>=200&&r.code<300)){ o.textContent=`Ford returned an error (${r.code}).\n${r.error||""}`; return; }
+  o.textContent=(r.miles!=null?`Odometer: ${Math.round(r.miles).toLocaleString()} miles (Ford last updated it ${r.odoTime?new Date(r.odoTime).toLocaleString():"at an unknown time"})\n`:"Ford didn't include the odometer.\n")+`Ford sent ${ (r.keys||[]).length } kinds of data: ${(r.keys||[]).join(", ")}`; refresh(); };
 $("debugOn").onchange=e=>{ A.setSetting("debug",e.target.checked?"1":"0"); refresh(); };
 $("mpgBtn").onclick=()=>{
   const k=$("mpgDay").value, segs=segsForDay(k), done=S.mpgDone||{};

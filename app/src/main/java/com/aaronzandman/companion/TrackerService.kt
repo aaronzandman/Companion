@@ -64,12 +64,24 @@ class TrackerService : Service(), LocationListener {
 
     @Volatile private var lastOdoTry = 0L
     private val odoBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastFordTry = 0L
     private fun readOdometer(t: Long) {
-        if (!Obd.enabled(this) || !odoBusy.compareAndSet(false, true)) return
+        if (!Obd.enabled(this)) { readFord(); return }
+        if (!odoBusy.compareAndSet(false, true)) return
         lastOdoTry = System.currentTimeMillis()
         Thread {
             // Stamp the reading halfway through the read (it takes a few seconds), so its time matches the miles.
             try { val t0 = System.currentTimeMillis(); Obd.readMiles(this)?.let { Obd.record(this, (t0 + System.currentTimeMillis()) / 2, it) } } finally { odoBusy.set(false) }
+        }.start()
+    }
+
+    /** Without the adapter: ask Ford for the odometer (at most once a minute). Ford's own time stamp is used. */
+    private fun readFord() {
+        if (!Ford.useForOdometer(this)) return
+        val now = System.currentTimeMillis(); if (now - lastFordTry < 60_000L || !odoBusy.compareAndSet(false, true)) return
+        lastFordTry = now
+        Thread {
+            try { Ford.readMiles(this)?.let { (mi, t) -> if (System.currentTimeMillis() - t < 15 * 60_000L) Obd.record(this, t, mi) } } finally { odoBusy.set(false) }
         }.start()
     }
 

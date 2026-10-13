@@ -47,6 +47,12 @@
         </activity>
 
         <activity
+            android:name=".FordActivity"
+            android:exported="false"
+            android:label="Connect Ford"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode" />
+
+        <activity
             android:name=".MpgActivity"
             android:exported="false"
             android:label="Log trips in MPG"

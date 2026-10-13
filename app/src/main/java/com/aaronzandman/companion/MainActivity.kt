@@ -90,6 +90,7 @@ class MainActivity : Activity() {
     @Deprecated("Activity result API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_FORD) { web.evaluateJavascript("refresh()", null); return }
         if (requestCode != REQ_SHOT || resultCode != RESULT_OK || data == null) return
         val uris = ArrayList<Uri>()
         data.clipData?.let { cd -> for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri) } ?: data.data?.let { uris.add(it) }
@@ -172,6 +173,9 @@ class MainActivity : Activity() {
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
                     .put("debug", Store.get(c, "debug", "0") == "1")
+                    .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
+                        .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
+                        .put("idEnd", Store.get(c, "fordId", "").takeLast(4)))
                     .put("odoBase", try { JSONObject(Store.get(c, "odoBase", "")) } catch (_: Exception) { JSONObject.NULL })
                     .put("home", Store.get(c, "home", "").let { if (it.isEmpty()) JSONObject.NULL else JSONObject(it) }))
                 .toString()
@@ -381,6 +385,33 @@ class MainActivity : Activity() {
             startActivity(Intent(this@MainActivity, MpgActivity::class.java).putExtra("test", true))
         }
 
+        // ---- Ford (FordConnect Query) ----
+        @JavascriptInterface fun fordSave(id: String, secret: String) { Ford.saveCredentials(this@MainActivity, id, secret) }
+        @JavascriptInterface fun fordConnect() = runOnUiThread {
+            if (!Ford.configured(this@MainActivity)) return@runOnUiThread
+            @Suppress("DEPRECATION") startActivityForResult(Intent(this@MainActivity, FordActivity::class.java), REQ_FORD)
+        }
+        @JavascriptInterface fun fordDisconnect() { Ford.disconnect(this@MainActivity) }
+        @JavascriptInterface fun fordUse(on: Boolean) { Store.put(this@MainActivity, "fordOdo", if (on) "1" else "0") }
+        /** Asks Ford for the van's data once; calls onFordTest(result) with the odometer and what Ford returned. */
+        @JavascriptInterface fun fordTest() {
+            Thread {
+                val c = this@MainActivity
+                val (code, text) = Ford.get(c, "telemetry")
+                val res = JSONObject().put("code", code)
+                try {
+                    val j = JSONObject(text); val m = j.optJSONObject("metrics")
+                    res.put("updateTime", j.optString("updateTime"))
+                    res.put("keys", JSONArray(m?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList<String>()))
+                    m?.optJSONObject("odometer")?.let { o -> val km = o.optDouble("value", Double.NaN)
+                        if (!km.isNaN()) { res.put("miles", km / 1.609344).put("odoTime", o.optString("updateTime"))
+                            val t = Ford.parseTime(o.optString("updateTime").ifBlank { j.optString("updateTime") }) ?: System.currentTimeMillis()
+                            Obd.record(c, t, km / 1.609344) } }
+                } catch (_: Exception) { res.put("error", text.take(300)) }
+                runOnUiThread { web.evaluateJavascript("onFordTest($res)", null) }
+            }.start()
+        }
+
         @JavascriptInterface fun remove(orders: String) {
             val want = orders.split(",").map { it.trim() }.toSet()
             Store.updateDispatches(this@MainActivity) { d -> if (d.optString("order") in want) null else d }
@@ -475,6 +506,7 @@ class MainActivity : Activity() {
             "Timer: ${if (trk.optBoolean("running")) "running since ${fmt.format(java.util.Date(trk.optLong("dayStart")))}" else "not running"}",
             "Data (counts only): ${Store.dispatches(c).length()} dispatch texts, ${Store.segments(c).length()} time entries, ${Stores.all(c).size} stores loaded",
             "Home location: ${if (Tracker.home(c) != null) "saved (location not included)" else "not saved"}",
+            "Ford connection: ${if (Ford.connected(c)) "connected" else if (Ford.configured(c)) "set up, not signed in" else "not set up"}",
             "Settings: planner ${Store.get(c, "edition", "VA")} · store distance ${Store.get(c, "radius", "250")} m · read texts ${if (Store.get(c, "smsOn", "1") == "1") "on" else "off"} · sender filter ${if (Store.get(c, "senderFilter", "").isNotBlank()) "set" else "none"} · work email ${if (Store.get(c, "workEmail", "").isNotBlank()) "set" else "not set"}",
             "OBD adapter: ${if (Obd.enabled(c)) "set up (${obdType} Bluetooth)" else "none"} · last reading ${if (odoLast > 0) fmt.format(java.util.Date(odoLast)) else "never"}",
             "Last crash: ${Store.get(c, "lastCrash", "none")}"
@@ -488,6 +520,7 @@ class MainActivity : Activity() {
         const val REQ_NOTIFY = 12
         const val REQ_BT = 13
         const val REQ_SHOT = 14
+        const val REQ_FORD = 15
         const val SITE = "https://aaronzandman.github.io/Route2/"
         const val OUTLOOK = "com.microsoft.office.outlook"
         const val FEEDBACK_TO = "Aaron.zandman@publix.com"
