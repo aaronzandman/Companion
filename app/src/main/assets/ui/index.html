@@ -363,7 +363,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion 1.13.1 installed itself.</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.2).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1263,7 +1263,7 @@ function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), 
 // Updates: Companion checks GitHub every 6 hours (and when you start your day), downloads a newer version in the
 // background, makes sure it's signed with Companion's own key, then offers one-tap install.
 function onUpdate(r){
-  const u=$("upd"), manual=!!r.manual, startup=!!r.startup;
+  const u=$("upd"), manual=!!r.manual, startup=!!r.startup; if(startup) UPD_RUNNING=false;
   u.classList.remove("checking");
   if(startup && !(r.ready && r.tag)){   // nothing to install: say so briefly, then get out of the way
     if(r.error){ u.classList.remove("show"); refresh(); return; }
@@ -1282,11 +1282,13 @@ const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings
 setInterval(()=>{ if(!document.hidden) refresh(); },5000);
 // check for updates when the app opens and every 6 hours while it's open (the app limits real checks to every 6 hours)
 // When Companion opens, the first thing it does is check for an update (and download it), then offer to install.
-try{
-  if(A.checkUpdateStartup){ const u=$("upd"); u.innerHTML="Checking for updates…"; u.classList.add("show","checking"); A.checkUpdateStartup(); }
-  else A.checkUpdate(false);
-  setInterval(()=>A.checkUpdate(false), 6*3600*1000);
-}catch(e){}
+let UPD_LAST=0, UPD_RUNNING=false;
+window.startupUpdate=()=>{
+  if(!A.checkUpdateStartup||UPD_RUNNING||Date.now()-UPD_LAST<60e3) return;   // opening or coming back to the app: at most once a minute
+  const u=$("upd"); if(u.querySelector("button")) return;   // an update is already waiting to be installed
+  UPD_RUNNING=true; UPD_LAST=Date.now(); u.innerHTML="Checking for updates…"; u.classList.add("show","checking"); A.checkUpdateStartup();
+};
+try{ if(A.checkUpdateStartup) startupUpdate(); else A.checkUpdate(false); setInterval(()=>A.checkUpdate(false), 6*3600*1000); }catch(e){}
 // ---- startup permissions check ----
 const PERMS=[
   ["sms","Read dispatch texts","So new calls show up automatically.",()=>A.askSms()],

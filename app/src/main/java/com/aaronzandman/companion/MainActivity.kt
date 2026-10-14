@@ -153,7 +153,8 @@ class MainActivity : Activity() {
         Store.updateDispatches(this) { d -> if (d.optString("order") in want) d.put("sent", true) else d }
     }
 
-    override fun onResume() { super.onResume(); if (::web.isInitialized) web.evaluateJavascript("window.refresh&&refresh()", null) }
+    // Every time Companion comes to the front: refresh, and check for an update first (the page limits it to once a minute).
+    override fun onResume() { super.onResume(); if (::web.isInitialized) web.evaluateJavascript("window.refresh&&refresh();window.startupUpdate&&startupUpdate()", null) }
 
     @Deprecated("Activity result API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -637,7 +638,7 @@ class MainActivity : Activity() {
          *  progress, and calls onUpdate({..., startup:true}) so the page can offer the install straight away. */
         @JavascriptInterface fun checkUpdateStartup() {
             Thread {
-                val r = Updater.check(this@MainActivity, 10 * 60_000L) { pct -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress&&onUpdProgress($pct,true)", null) } }
+                val r = Updater.check(this@MainActivity, 60_000L) { pct -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress&&onUpdProgress($pct,true)", null) } }
                 r.put("startup", true)
                 runOnUiThread { web.evaluateJavascript("onUpdate($r)", null) }
             }.start()
