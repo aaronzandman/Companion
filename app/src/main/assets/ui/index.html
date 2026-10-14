@@ -41,6 +41,16 @@ button{font:inherit}
 .updinfo{font-size:14px;line-height:1.6;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
 .updinfo .ok{color:#1F6B4F;font-weight:700}.updinfo .warn2{color:#B45309;font-weight:700}
 @media (prefers-color-scheme:dark){.updinfo .ok{color:#7FD3A8}.updinfo .warn2{color:#FBBF24}}
+.grp{margin:0 0 10px;border-radius:14px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.grp>summary{list-style:none;cursor:pointer;padding:16px;font:700 18px/1.2 var(--sign);display:flex;justify-content:space-between;align-items:center}
+.grp>summary::-webkit-details-marker{display:none}
+.grp>summary::after{content:"▾";font-size:16px;color:var(--muted);transition:transform .15s}
+.grp[open]>summary::after{transform:rotate(180deg)}
+.grp>.card{margin:0;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none}
+.grp>.card[hidden]{display:none}
+details.more{margin-top:8px}details.more>summary{color:var(--road);font-weight:600;cursor:pointer;padding:6px 0}
+.sub3{font:700 15px var(--body);margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--line)}
+.totline{margin:-2px 0 6px}
 .age{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;border:1px solid transparent}
 .age.g{background:#DDF3E4;color:#14532D;border-color:#9AD3AE}.age.y{background:#FFF4BF;color:#5C4400;border-color:#E9CF55}
 .age.o{background:#FFE0C2;color:#7A3500;border-color:#F0A060}.age.r{background:#B3261E;color:#fff}
@@ -76,6 +86,7 @@ select,input[type=text],input[type=email]{max-width:100%;font:inherit;padding:8p
 input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 .upd{display:none;background:var(--warn);color:var(--warnink);border-radius:10px;padding:12px;margin-bottom:12px}
 .upd.show{display:block}
+.upd.checking{background:var(--soft);color:var(--ink);padding:8px 12px;font-size:14px}
 .empty{text-align:center;color:var(--muted);padding:18px 8px}
 .dlg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .dlg[hidden]{display:none}
@@ -175,17 +186,12 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <button class="btn sec" id="ovStart" style="margin:0">▶ Start work time now</button>
         <button class="btn sec" id="ovEnd" style="margin:0">■ End work time now</button>
       </div>
-      <div class="hint" style="margin-top:8px">While your day is running, Companion records drive time and time at each store by itself, even with the screen off. A notification shows it's on.</div>
+      <div class="hint" style="margin-top:8px">Records drive and store time by itself, even with the screen off.</div>
       <div class="tot" id="payRow">
         <div class="work"><b id="tWork">0.00</b><span>Work hrs</span></div>
         <div class="pers"><b id="tPers">0.00</b><span>Personal hrs</span></div>
         <div class="work"><b id="tWorkMi">—</b><span>Work miles</span></div>
         <div class="pers"><b id="tPersMi">—</b><span>Personal miles</span></div>
-      </div>
-      <div class="tot" id="totRow">
-        <div><b id="tDrive">0.00</b><span>Driving (hrs)</span></div>
-        <div><b id="tStore">0.00</b><span>At stores (hrs)</span></div>
-        <div><b id="tStop">0.00</b><span>Other stops (hrs)</span></div>
       </div>
       <div class="hint" id="payNote" style="margin-top:6px"></div>
       <div class="warn" id="odoWarn" hidden style="margin:10px 0 0"></div>
@@ -199,35 +205,39 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </div>
     <div class="card">
       <h2>Today</h2>
+      <div class="hint totline">Driving <b id="tDrive">0.00</b> · At stores <b id="tStore">0.00</b> · Other stops <b id="tStop">0.00</b> hrs</div>
       <div id="segs"></div>
       <button class="btn" id="logOpen">View and edit log</button>
       <button class="btn sec" id="copyDay">Copy today's log</button>
     </div>
     <div class="card" id="mailCard">
-      <h2>Email my time</h2>
-      <div class="hint" id="mailTo"></div>
+      <h2>End of day</h2>
       <label class="set"><span><b>Day</b></span><select id="mailDay"></select></label>
+      <h3 class="sub3">Email my time</h3>
+      <div class="hint" id="mailTo"></div>
       <button class="btn" id="mailBtn">Email this day with Outlook</button>
-      <div class="hint" style="margin-top:6px">Opens Outlook with the email filled in and a spreadsheet (.csv) of the day attached. Tap Send in Outlook.</div>
-    </div>
-    <div class="card" id="mpgCard">
-      <h2>Log trips in MPG</h2>
-      <div class="hint">One trip per drive, the way you log them in MPG. Mileage is logged only after the day ends: End my day (or arriving home) offers the whole day's trips at once. Companion fills in each trip; you check it and tap Save in MPG.</div>
-      <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
+      <div class="hint" style="margin-top:6px">Outlook opens with the log and a spreadsheet attached; tap Send.</div>
+      <div id="mpgCard">
+      <h3 class="sub3">Log trips in MPG</h3>
+      <div class="hint">One trip per drive, once the day has ended. You check each trip and tap Save in MPG.</div>
+      <select id="mpgDay" hidden></select>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
       <button class="btn sec" id="mpgAgain" hidden>Log this day again</button>
       <div class="hint" id="mpgNote" style="margin-top:6px"></div>
+      </div>
     </div>
   </section>
 
   <!-- SETTINGS -->
   <section id="settings">
+    <details class="grp" id="grp-calls"><summary>Calls &amp; Route Planner</summary>
     <div class="card">
+      <h2>Calls &amp; Route Planner</h2>
       <label class="set"><span><b>My Route Planner</b><br><span class="hint">Calls you send open in this planner.</span></span>
         <select id="edition"><option value="VA">Virginia</option><option value="AL">Alabama</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="KY">Kentucky</option><option value="NC">North Carolina</option><option value="SC">South Carolina</option><option value="TN">Tennessee</option><option value="ALL">Company-wide</option></select></label>
       <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
-      <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">When a dispatch text arrives, the notification offers Reroute now or Keep my route (with a suggestion) and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
+      <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">Each new dispatch text offers Reroute or Keep my route and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
         <div class="hint" id="importHint"></div>
@@ -236,42 +246,20 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="histHint" style="margin-top:4px"></div>
         <button class="btn sec" id="expCalls" style="margin-top:8px">Export all calls for desktop</button>
         <div class="hint" id="expHint" style="margin-top:4px"></div></div>
-      <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store". Try 600 m if a big shopping center isn't recognized.</span></span>
-        <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option><option value="600">600 m</option></select></label>
     </div>
-    <div class="card" id="odoCard">
-      <h2>Odometer</h2>
-      <div class="hint">Enter the van's odometer now and then (about once a week). Between entries, Companion adds the miles you drive by GPS. With the odometer adapter connected, its readings are used instead.</div>
-      <div id="odoNow" style="margin:8px 0;font-weight:600"></div>
-      <div class="row" style="align-items:center"><input type="text" id="odoIn" inputmode="numeric" placeholder="Current odometer" style="flex:1;min-width:0"><button class="btn" style="width:auto;margin:0" id="odoSave">Save</button></div>
-    </div>
-    <div class="card" id="fordCard">
-      <h2>Ford connection</h2>
-      <div class="hint">Reads the van's odometer from Ford (FordConnect) when the odometer adapter isn't connected. Your Ford developer Client ID and Secret, and your Ford sign-in, are kept on this phone only.</div>
-      <div id="fordNow" style="margin:8px 0;font-weight:600"></div>
-      <button class="btn sec" id="fordGuideBtn">📘 Ford setup guide</button>
-      <div id="fordCreds">
-        <input type="text" id="fordId" placeholder="Client ID" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px">
-        <input type="password" id="fordSecret" placeholder="Client Secret" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
-        <button class="btn sec" id="fordSaveBtn">Save Ford app details</button>
-      </div>
-      <button class="btn" id="fordConnectBtn">Connect Ford</button>
-      <div class="row"><button class="btn sec" id="fordTestBtn">Test Ford data</button><button class="btn sec" id="fordOffBtn">Disconnect</button></div>
-      <button class="btn sec" id="fordRawBtn">View raw Ford data</button>
-      <label class="set"><span><b>Use Ford for the odometer</b><br><span class="hint">When the adapter isn't connected, ask Ford for the odometer while you drive (every 5 minutes).</span></span><input type="checkbox" class="sw" id="fordUse"></label>
-      <pre id="fordOut" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
-    </div>
+    </details>
+    <details class="grp" id="grp-day"><summary>Day &amp; tracking</summary>
     <div class="card" id="autoCard">
       <h2>Start and end automatically</h2>
-      <label class="set"><span><b>Start my day when my phone connects to</b><br><span class="hint">Pick the van's Bluetooth (radio or adapter). If your day ended at home earlier today, it picks that day back up.</span></span><input type="checkbox" class="sw" id="autoStart"></label>
+      <label class="set"><span><b>Start my day when my phone connects to</b><br><span class="hint">Pick the van's own Bluetooth (radio). A day that ended at home today picks back up.</span></span><input type="checkbox" class="sw" id="autoStart"></label>
       <div class="row" style="gap:6px;align-items:center"><select id="autoDev" style="flex:1;min-width:0"></select><button class="btn sec" id="autoDevRefresh" style="width:auto;flex:none;margin:0;padding:8px 12px">Refresh</button></div>
       <div class="hint" id="autoStartHint" style="margin-top:6px"></div>
       <button class="btn sec" id="autoBgBtn" hidden>Allow location “All the time”</button>
-      <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Driving starts when your phone connects to it and ends when it disconnects; GPS only works out where you stopped (store, home or elsewhere) and the miles. Turn off if you drive a different vehicle.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
-      <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day once you're home and stopped, then offers the email and the day's MPG trips. Going back out? Start your day again (or just connect to the van) and it continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
+      <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Connected = driving, disconnected = stopped. GPS only places stops and measures miles.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
+      <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day at home, then offers the email and MPG trips. Heading out again continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
       <div class="hint" id="autoEndHint"></div>
-      <label class="set"><span><b>Keep Companion on, including after a restart</b><br><span class="hint">Companion starts with the phone and stays ready for dispatch texts, the van's Bluetooth and updates. Android requires a small "Companion is on" notification for this. It uses no GPS.</span></span><input type="checkbox" class="sw" id="standby"></label>
-      <label class="set"><span><b>Pick my day back up after a restart</b><br><span class="hint">If your day is running when the phone restarts (or Companion updates), the timer carries on by itself. Without location "All the time", you get a notification to tap instead.</span></span><input type="checkbox" class="sw" id="autoBoot"></label>
+      <label class="set"><span><b>Keep Companion on, including after a restart</b><br><span class="hint">Starts with the phone, ready for texts, the van's Bluetooth and updates. Shows a small notification; no GPS.</span></span><input type="checkbox" class="sw" id="standby"></label>
+      <label class="set"><span><b>Pick my day back up after a restart</b><br><span class="hint">A running day carries on after a restart or an update.</span></span><input type="checkbox" class="sw" id="autoBoot"></label>
     </div>
     <div class="card">
       <h2>Home location</h2>
@@ -290,14 +278,21 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       </ul></details>
     </div>
     <div class="card">
-      <h2>Email</h2>
-      <label class="set"><span><b>My work email</b><br><span class="hint">Your @publix.com address. Time logs go here, through Outlook only.</span></span><input type="email" id="workEmail" inputmode="email" autocomplete="email" placeholder="name@publix.com" style="width:170px"></label>
-      <div class="hint" id="emailErr" style="color:var(--red)"></div>
-      <label class="set"><span><b>Email my day when I end it</b><br><span class="hint">Tapping End my day opens Outlook with the day's log ready to send.</span></span><input type="checkbox" class="sw" id="autoEmail"></label>
+      <h2>Stores</h2>
+      <label class="set"><span><b>Store arrival distance</b><br><span class="hint">How close counts as "at the store". Try 600 m if a big shopping center isn't recognized.</span></span>
+        <select id="radius"><option value="150">150 m</option><option value="250">250 m</option><option value="400">400 m</option><option value="600">600 m</option></select></label>
+    </div>
+    </details>
+    <details class="grp" id="grp-van"><summary>Van: odometer, adapter, Ford</summary>
+    <div class="card" id="odoCard">
+      <h2>Odometer</h2>
+      <div class="hint">Enter it about once a week. In between, Companion adds GPS miles, or uses the adapter or Ford when connected.</div>
+      <div id="odoNow" style="margin:8px 0;font-weight:600"></div>
+      <div class="row" style="align-items:center"><input type="text" id="odoIn" inputmode="numeric" placeholder="Current odometer" style="flex:1;min-width:0"><button class="btn" style="width:auto;margin:0" id="odoSave">Save</button></div>
     </div>
     <div class="card" id="obdCard">
       <h2>Vehicle odometer</h2>
-      <div class="hint">Connect your OBD adapter (Vgate vLinker FD+) to log the exact odometer at every stop. Pair it once in Android's Bluetooth settings if it uses regular Bluetooth.</div>
+      <div class="hint">Logs the exact odometer at every stop (Vgate vLinker FD+). Pair it once in Android's Bluetooth settings.</div>
       <details style="margin-top:6px"><summary style="color:var(--road);font-weight:600">Which adapter to buy</summary><ul class="ul">
         <li><b>Known to work: Vgate vLinker FD+ (BT3.0 / BLE4.0) OBD2 Scanner</b>, also listed as "vLinker FD Plus". Get the BT3.0/BLE4.0 Bluetooth model (not a USB or Wi-Fi version). It plugs into the OBD port under the dash near the steering column. This is the adapter Companion is set up for: it reads the 2020 Transit's odometer the same way as the Torque "Ford Transit Odometer 2020+" setting.</li>
         <li>Other ELM327-compatible Bluetooth adapters may work but haven't been tested. Use <b>Test reading</b> to check one.</li>
@@ -308,6 +303,35 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div id="obdList"></div>
       <pre id="obdLog" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
     </div>
+    <div class="card" id="fordCard">
+      <h2>Ford connection</h2>
+      <div class="hint">Reads the odometer and oil life from Ford. Your Ford details stay on this phone.</div>
+      <div id="fordNow" style="margin:8px 0;font-weight:600"></div>
+      <button class="btn sec" id="fordGuideBtn">📘 Ford setup guide</button>
+      <div id="fordCreds">
+        <input type="text" id="fordId" placeholder="Client ID" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px">
+        <input type="password" id="fordSecret" placeholder="Client Secret" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)">
+        <button class="btn sec" id="fordSaveBtn">Save Ford app details</button>
+      </div>
+      <button class="btn" id="fordConnectBtn">Connect Ford</button>
+      <label class="set"><span><b>Use Ford for the odometer</b><br><span class="hint">Asks Ford every 5 minutes while you drive, when the adapter isn't connected.</span></span><input type="checkbox" class="sw" id="fordUse"></label>
+      <details id="fordMore" class="more"><summary>Test, raw data, guide, disconnect</summary>
+        <div class="row"><button class="btn sec" id="fordTestBtn">Test Ford data</button><button class="btn sec" id="fordOffBtn">Disconnect</button></div>
+        <button class="btn sec" id="fordRawBtn">View raw Ford data</button>
+        <button class="btn sec" id="fordGuideBtn2">📘 Ford setup guide</button>
+      </details>
+      <pre id="fordOut" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
+    </div>
+    </details>
+    <details class="grp" id="grp-email"><summary>Email</summary>
+    <div class="card">
+      <h2>Email</h2>
+      <label class="set"><span><b>My work email</b><br><span class="hint">Your @publix.com address. Time logs go here, through Outlook only.</span></span><input type="email" id="workEmail" inputmode="email" autocomplete="email" placeholder="name@publix.com" style="width:170px"></label>
+      <div class="hint" id="emailErr" style="color:var(--red)"></div>
+      <label class="set"><span><b>Email my day when I end it</b><br><span class="hint">Tapping End my day opens Outlook with the day's log ready to send.</span></span><input type="checkbox" class="sw" id="autoEmail"></label>
+    </div>
+    </details>
+    <details class="grp" id="grp-data"><summary>Your data</summary>
     <div class="card">
       <h2>Your stats</h2>
       <div class="hint">From your own data on this phone (last 60 days). Not sent anywhere.</div>
@@ -336,6 +360,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" id="uidMsg"></div></div>
       <details><summary>Sent from this phone</summary><div id="sentLog" class="hint"></div></details>
     </div>
+    </details>
     <div class="card">
       <h2>About</h2>
       <div class="hint" id="about"></div>
@@ -542,13 +567,13 @@ function render(){
   // timer
   const tr=S.tracker||{}, running=!!tr.running, cur=tr.cur||{};
   $("dayBtn").textContent=running?"End my day":"Start my day"; $("dayBtn").className="btn"+(running?" red":"");
-  $("status").innerHTML = running ? `${label(cur)}<small>since ${tm(cur.start)} · day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
+  $("status").innerHTML = running ? `${label(cur)}<small>${cur.start?`since ${tm(cur.start)} · `:""}day started ${tm(tr.dayStart)}</small>` : `Not tracking<small>${tr.lastEnd?"Last day ended "+when(tr.lastEnd):"Tap Start my day when you head out."}</small>`;
   const liveDay=!!(S.tracker&&S.tracker.running), cl=classify(S.today||[],liveDay), ps=paySum(cl.pieces), onc=cl.pieces.filter(p=>p.pay!=="OFF"), tot=totals(onc);
   $("tWork").textContent=fh(ps.WORK); $("tPers").textContent=fh(ps.PERSONAL);
   $("tWorkMi").textContent=ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.WORKmi):"—"; $("tPersMi").textContent=ps.anyMi?(ps.gps?"≈":"")+fmtMi(ps.PERSONALmi):"—";
   $("tDrive").textContent=fh(tot.DRIVE); $("tStore").textContent=fh(tot.STORE); $("tStop").textContent=fh(tot.STOP);
   const hs=(S.settings||{}).home;
-  $("payNote").innerHTML=[...(hs?[]:[`<b>Save your home location</b> in <a href="#" onclick="showTab('settings');return false">Settings</a> so trips to and from home are split correctly.`]),...cl.notes.map(esc)].join("<br>");
+  $("payNote").innerHTML=[...(hs?[]:[`<b>Save your home location</b> in <a href="#" onclick="showTab('settings');openGroupFor($('homeSave'));$('homeSave').scrollIntoView({block:'center'});return false">Settings</a> so trips to and from home are split correctly.`]),...cl.notes.map(esc)].join("<br>");
   const segs=(S.today||[]).slice().sort((a,b)=>b.start-a.start);
   $("segs").innerHTML = segs.length ? segs.map(g=>{
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
@@ -574,11 +599,11 @@ function render(){
   const est=odoEstimate(Date.now()), age=odoAge(), recentAdapter=(S.odo||[]).some(o=>Date.now()-o.t<7*864e5);
   $("odoNow").textContent = est ? `About ${Math.round(est.v).toLocaleString()} now`+(st.odoBase?` · you entered ${st.odoBase.mi.toLocaleString()} on ${new Date(st.odoBase.t).toLocaleDateString()}`:"")+(recentAdapter?" · adapter connected":"") : "No odometer reading yet. Enter it below.";
   const stale=!recentAdapter&&(age===null||age>7);
-  $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');$('odoIn').focus();return false">Open Settings</a>` : "";
+  $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');openGroupFor($('odoIn'));$('odoIn').focus();return false">Open Settings</a>` : "";
   const fd=st.ford||{};
   $("fordNow").textContent = fd.connected ? `Connected${fd.vehicle?" to "+fd.vehicle:""}.` : fd.configured ? `Ford app details saved (Client ID …${fd.idEnd}). Tap Connect Ford to sign in.` : "Not set up. Enter the Client ID and Secret from Ford's developer portal.";
   $("fordConnectBtn").hidden=!fd.configured||fd.connected; $("fordTestBtn").disabled=!fd.connected; $("fordRawBtn").disabled=!fd.connected; $("fordOffBtn").disabled=!fd.connected;
-  $("fordCreds").hidden=!!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
+  $("fordCreds").hidden=!!fd.connected; $("fordGuideBtn").hidden=!!fd.connected; $("fordMore").hidden=!fd.connected; $("fordUse").checked=fd.use!==false; $("fordUse").disabled=!fd.connected;
   const tier=S.tier||1;
   $("obdCard").hidden=tier<2; $("fordCard").hidden=tier<3;
   $("tierRow").hidden=tier>=3; $("tierLock").hidden=tier<2;
@@ -643,7 +668,7 @@ function sendHistory(){
 $("expCalls").onclick=()=>{
   const n=(S.dispatches||[]).length; if(!n){ toast("No calls yet. Import past dispatch texts first."); return; }
   const to=(S.settings||{}).workEmail||"";
-  if(!to){ toast("Add My work email first (Settings, below)."); const el=$("workEmail"); if(el){ el.scrollIntoView({block:"center"}); el.focus(); } return; }
+  if(!to){ toast("Add your work email first (Settings → Email)."); const el=$("workEmail"); if(el){ openGroupFor(el); el.scrollIntoView({block:"center"}); el.focus(); } return; }
   const r=A.exportCalls(to);
   if(r===-1) toast("Your work email must end in @publix.com.");
   else if(r>0){ track("export-calls"); toast(`Opening Outlook with ${r} call${r===1?"":"s"} attached. Send it to yourself, then import the file on your computer.`); setTimeout(refresh,800); }
@@ -777,7 +802,7 @@ function segsForDay(key){ return allSegs().filter(g=>dayKey(g.start)===key).sort
 const validEmail=e=>/^[A-Za-z0-9._%+'-]+@publix\.com$/i.test(e);
 function emailSegs(segs,title,key){
   const to=(S.settings||{}).workEmail||"";
-  if(!validEmail(to)){ toast("Add your work email in Settings first."); showTab("settings"); $("workEmail").focus(); return; }
+  if(!validEmail(to)){ toast("Add your work email in Settings first."); showTab("settings"); openGroupFor($("workEmail")); $("workEmail").focus(); return; }
   if(!segs.length){ toast("Nothing recorded that day."); return; }
   const live=segs.some(g=>g.live), ps=paySum(classify(segs,live).pieces);
   const subject=`Time log – ${title} – Work ${fh(ps.WORK)} hrs, Personal ${fh(ps.PERSONAL)} hrs`;
@@ -868,7 +893,7 @@ function mpgTrips(segs,live){
   return trips;
 }
 function renderMpg(){
-  const sel=$("mpgDay"), keep=sel.value;
+  const sel=$("mpgDay"), keep=$("mailDay").value||sel.value;   // one Day picker (End of day card) drives both
   const keys=[...new Set(allSegs().map(g=>dayKey(g.start)))].sort().reverse().slice(0,30), today=dayKey(Date.now());
   if(!keys.includes(today)) keys.unshift(today);
   sel.innerHTML=keys.map(k=>{ const [y,m,d]=k.split("-").map(Number); return `<option value="${k}">${k===today?"Today":new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"})}</option>`; }).join("");
@@ -882,6 +907,7 @@ function renderMpg(){
   $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : "MPG fills in the date and starting odometer. Companion fills in the description, ending odometer and Personal." + (trips.some(t=>!t.adapter)?" Without the adapter, ending odometer = MPG's start + the miles Companion measured (≈ numbers here are estimates).":"");
 }
 $("mpgDay").onchange=renderMpg;
+$("mailDay").onchange=renderMpg;
 $("mpgAgain").onclick=()=>{ const k=$("mpgDay").value;
   if(!confirm(`Log ${dayName(new Date(k+"T12:00:00"))} in MPG again?\n\nOnly do this if you've deleted that day's trips in MPG, or they'll be there twice.`)) return;
   A.mpgReset(k); track("mpg-again"); refresh(); toast("Ready: tap Log trips in MPG."); };
@@ -998,6 +1024,11 @@ window.onCsv=text=>{
 function setOvNow(k){ const day=dayKey(Date.now()), ov=Object.assign({},(S.overrides||{})[day]||{}); ov[k]=Date.now(); A.setOverride(day,JSON.stringify(ov)); refresh(); }
 $("ovStart").onclick=()=>{ if(confirm("Start work time now? This skips the 30-minute morning rule for today. You can change it in View and edit log.")){ setOvNow("ws"); track("override-start"); toast("Work time started."); } };
 $("ovEnd").onclick=()=>{ if(confirm("End work time now? From now until you get home is personal, skipping the 30-minute evening rule. You can change it in View and edit log.")){ setOvNow("we"); track("override-end"); toast("Work time ended. The drive home is personal."); } };
+// ---- Settings groups: start closed; remember which ones you opened ----
+document.querySelectorAll("details.grp").forEach(d=>{ try{ if(localStorage.getItem("grp:"+d.id)==="1") d.open=true; }catch(e){}
+  d.addEventListener("toggle",()=>{ try{ localStorage.setItem("grp:"+d.id,d.open?"1":"0"); }catch(e){} }); });
+// Jumping to a setting from elsewhere (e.g. "Add your work email in Settings") opens its group first
+function openGroupFor(el){ const g=el&&el.closest&&el.closest("details.grp"); if(g) g.open=true; }
 // ---- automatic start (Bluetooth) and end (home) ----
 function renderAuto(){
   const st=S.settings||{}, p=S.perm||{}, sel=$("autoDev");
@@ -1030,7 +1061,7 @@ window.onFordWait=n=>{ let left=n; const b=$("fordRawBtn"), tick=()=>{ if(!b.dis
 window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };
 $("frCopy").onclick=()=>A.copy($("frText").textContent);
 $("frClose").onclick=()=>$("fordRawDlg").hidden=true;
-$("fordGuideBtn").onclick=()=>{ $("fordGuide").hidden=false; $("fordGuide").querySelector(".box").scrollTop=0; };
+$("fordGuideBtn").onclick=$("fordGuideBtn2").onclick=()=>{ $("fordGuide").hidden=false; $("fordGuide").querySelector(".box").scrollTop=0; };
 $("fgClose").onclick=()=>$("fordGuide").hidden=true;
 $("fordGuide").onclick=e=>{ if(e.target.id==="fordGuide") $("fordGuide").hidden=true; };
 $("fgCopy").onclick=()=>A.copy($("fgRedirect").textContent);
@@ -1090,7 +1121,7 @@ $("oilChanged").onclick=()=>{
 };
 function renderMail(){
   const st=S.settings||{}, sel=$("mailDay"), keep=sel.value;
-  $("mailTo").innerHTML = st.workEmail ? `Sends to <b>${esc(st.workEmail)}</b> · change in Settings` : `Add your work email in <a href="#" onclick="showTab('settings');return false">Settings</a> to email your time.`;
+  $("mailTo").innerHTML = st.workEmail ? `Sends to <b>${esc(st.workEmail)}</b> · change in Settings` : `Add your work email in <a href="#" onclick="showTab('settings');openGroupFor($('workEmail'));$('workEmail').focus();return false">Settings</a> to email your time.`;
   const keys=[...new Set(allSegs().map(g=>dayKey(g.start)))].sort().reverse().slice(0,30);
   const today=dayKey(Date.now()); if(!keys.includes(today)) keys.unshift(today);
   sel.innerHTML=keys.map(k=>{ const [y,m,d]=k.split("-").map(Number); const dt=new Date(y,m-1,d);
@@ -1226,15 +1257,21 @@ function renderUpd(){
     (u.ready&&!UPD_BUSY?`<button class="btn" style="margin-top:8px" onclick="A.installUpdate()">Install ${esc(verTxt(u.ready))} now</button>`:"");
 }
 $("updBtn").onclick=()=>{ if(UPD_BUSY) return; UPD_BUSY=true; $("updBtn").disabled=true; $("updBtn").textContent="Checking GitHub…"; track("update-check"); A.checkUpdate(true); };
-window.onUpdProgress=p=>{ $("updBtn").textContent=`Downloading update… ${p}%`; };
+window.onUpdProgress=(p,startup)=>{ if(startup){ const u=$("upd"); u.innerHTML=`Downloading the new version… ${p}%`; u.classList.add("show","checking"); } else $("updBtn").textContent=`Downloading update… ${p}%`; };
 function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), y=String(b).split(".").map(Number); for(let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)>(y[i]||0); } return false; }
 // Updates: Companion checks GitHub every 6 hours (and when you start your day), downloads a newer version in the
 // background, makes sure it's signed with Companion's own key, then offers one-tap install.
 function onUpdate(r){
-  const u=$("upd"), manual=!!r.manual;
+  const u=$("upd"), manual=!!r.manual, startup=!!r.startup;
+  u.classList.remove("checking");
+  if(startup && !(r.ready && r.tag)){   // nothing to install: say so briefly, then get out of the way
+    if(r.error){ u.classList.remove("show"); refresh(); return; }
+    u.innerHTML=`✓ Companion is up to date (${esc(verTxt(S.version||r.current||""))})`; u.classList.add("show","checking"); refresh();
+    setTimeout(()=>{ if(!u.querySelector("button")) u.classList.remove("show"); },2500); return; }
   if(manual){ UPD_BUSY=false; $("updBtn").disabled=false; $("updBtn").textContent="Check for updates"; }
   refresh();
   if(r.ready && r.tag){ u.innerHTML=`<b>Companion ${esc(verTxt(r.tag))} is ready to install.</b> You have ${esc(verTxt(S.version))}. Your data stays.<button class="btn" onclick="A.installUpdate()">Install now</button>`; u.classList.add("show");
+    if(startup && confirm(`Companion ${verTxt(r.tag)} is ready (you have ${verTxt(S.version)}).\n\nInstall it now? Your data stays.`)) A.installUpdate();
     if(manual) toast(`Downloaded ${verTxt(r.tag)}. Tap Install now.`); return; }
   if(r.error){ if(manual) toast(r.error==="download"?`Couldn't download ${verTxt(r.tag)}: ${r.why||"try again"}.`:r.error==="busy"?"GitHub is busy right now. Try again in a while.":"Couldn't reach GitHub. Check your connection."); return; }
   u.classList.remove("show");
@@ -1243,7 +1280,12 @@ function onUpdate(r){
 const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings"].includes(tab)) showTab(tab);
 setInterval(()=>{ if(!document.hidden) refresh(); },5000);
 // check for updates when the app opens and every 6 hours while it's open (the app limits real checks to every 6 hours)
-try{ A.checkUpdate(false); setInterval(()=>A.checkUpdate(false), 6*3600*1000); }catch(e){}
+// When Companion opens, the first thing it does is check for an update (and download it), then offer to install.
+try{
+  if(A.checkUpdateStartup){ const u=$("upd"); u.innerHTML="Checking for updates…"; u.classList.add("show","checking"); A.checkUpdateStartup(); }
+  else A.checkUpdate(false);
+  setInterval(()=>A.checkUpdate(false), 6*3600*1000);
+}catch(e){}
 // ---- startup permissions check ----
 const PERMS=[
   ["sms","Read dispatch texts","So new calls show up automatically.",()=>A.askSms()],

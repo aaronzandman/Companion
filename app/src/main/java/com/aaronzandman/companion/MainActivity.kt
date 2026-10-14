@@ -633,6 +633,16 @@ class MainActivity : Activity() {
             }.start()
         }
 
+        /** Run first whenever Companion opens: asks GitHub for a newer version (at most every 10 minutes), downloads it with
+         *  progress, and calls onUpdate({..., startup:true}) so the page can offer the install straight away. */
+        @JavascriptInterface fun checkUpdateStartup() {
+            Thread {
+                val r = Updater.check(this@MainActivity, 10 * 60_000L) { pct -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress&&onUpdProgress($pct,true)", null) } }
+                r.put("startup", true)
+                runOnUiThread { web.evaluateJavascript("onUpdate($r)", null) }
+            }.start()
+        }
+
         /** Opens Android's install screen for the downloaded update (or the setting to allow it first). */
         @JavascriptInterface fun installUpdate() = runOnUiThread { install() }
 
