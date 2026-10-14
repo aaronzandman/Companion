@@ -85,7 +85,8 @@ class BtReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        if (Store.get(c, "autoBoot", "1") != "1" || !Tracker.isRunning(c)) return
+        if (!Tracker.isRunning(c)) { StandbyService.start(c); return }   // no day running: just be on and ready
+        if (Store.get(c, "autoBoot", "1") != "1") { StandbyService.start(c); return }
         val why = if (i.action == Intent.ACTION_BOOT_COMPLETED) "Your phone restarted" else "Companion updated"
         if (AutoDay.backgroundOk(c) && ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try { ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java).putExtra("resumeNote", why)); return } catch (_: Exception) {}

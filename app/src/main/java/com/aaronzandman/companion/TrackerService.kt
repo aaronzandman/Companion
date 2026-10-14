@@ -147,6 +147,7 @@ class TrackerService : Service(), LocationListener {
     private fun stopEverything() {
         try { lm?.removeUpdates(this) } catch (_: Exception) {}
         lm = null
+        if (!Tracker.isRunning(this)) StandbyService.start(this)   // day over: back to standby
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -158,7 +159,7 @@ class TrackerService : Service(), LocationListener {
         const val ACTION_BT = "bt"
         /** Tell the running timer that the van connected or disconnected. */
         fun ping(c: Context) { try { c.startService(Intent(c, TrackerService::class.java).setAction(ACTION_BT)) } catch (_: Exception) {} }
-        fun start(c: Context) = ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java))
+        fun start(c: Context) { StandbyService.stop(c); ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java)) }
         fun stop(c: Context) = c.startService(Intent(c, TrackerService::class.java).setAction(ACTION_STOP))
     }
 }

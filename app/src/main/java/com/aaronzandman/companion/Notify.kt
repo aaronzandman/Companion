@@ -36,6 +36,7 @@ object Notify {
             val nm = c.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel(CH_DISPATCH, "Dispatch texts", NotificationManager.IMPORTANCE_HIGH))
             nm.createNotificationChannel(NotificationChannel(CH_TRACKER, "Timer running", NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(NotificationChannel(CH_STANDBY, "Companion is on", NotificationManager.IMPORTANCE_MIN))
             nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
         }
     }
@@ -93,6 +94,8 @@ object Notify {
     }
 
     const val ID_AUTODAY = 4
+    const val CH_STANDBY = "standby"
+    const val ID_STANDBY = 5
     /** Automatic start/end messages. With [tapStarts], tapping opens Companion and starts (or resumes) the day. */
     fun autoDay(c: Context, title: String, text: String, tapStarts: Boolean) {
         channels(c)

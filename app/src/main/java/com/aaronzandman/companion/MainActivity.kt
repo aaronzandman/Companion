@@ -89,6 +89,7 @@ class MainActivity : Activity() {
         web.loadUrl("file:///android_asset/ui/index.html" + (intent?.getStringExtra("tab")?.let { "#$it" } ?: ""))
         handlePlanner(intent)
         handleAuto(intent)
+        StandbyService.start(this)
     }
 
     /** Starts the day, or picks today's day back up if it ended automatically at home (e.g. lunch at home). */
@@ -261,6 +262,7 @@ class MainActivity : Activity() {
                     .put("autoEndHome", Store.get(c, "autoEndHome", "0") == "1")
                     .put("autoBtDrive", Store.get(c, "autoBtDrive", "0") == "1")
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
+                    .put("standby", StandbyService.enabled(c))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
                         .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
@@ -608,7 +610,10 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot")) Store.put(this@MainActivity, key, value.take(80))
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby")) {
+                Store.put(this@MainActivity, key, value.take(80))
+                if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }
+            }
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {
