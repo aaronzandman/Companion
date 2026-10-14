@@ -23,10 +23,12 @@ object AutoDay {
     /** "Allow all the time" location: lets Android start the timer while Companion is closed. */
     fun backgroundOk(c: Context) = Build.VERSION.SDK_INT < 29 || granted(c, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
-    fun onConnected(c: Context, addr: String, name: String) {
-        if (!addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
-        if (Tracker.isRunning(c)) { if (Tracker.btMode(c) && Tracker.btConnected(c)) TrackerService.ping(c); return }
-        if (!startEnabled(c)) return
+    /** [force]: the vLinker was seen (VanWatch), which counts as "the van connected" whatever device is picked above. */
+    fun onConnected(c: Context, addr: String, name: String, force: Boolean = false) {
+        if (!force && !addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
+        val drive = Tracker.btMode(c) || (force && Store.get(c, "autoBtDrive", "0") == "1")
+        if (Tracker.isRunning(c)) { if (drive && Tracker.btConnected(c)) TrackerService.ping(c); return }
+        if (!force && !startEnabled(c)) return
         if (!granted(c, Manifest.permission.ACCESS_FINE_LOCATION)) {
             Notify.autoDay(c, "$name connected", "Allow location for Companion so your day can start by itself. Tap to open.", true); return
         }
@@ -37,7 +39,7 @@ object AutoDay {
         if (backgroundOk(c)) {
             try {
                 if (resume) Tracker.resumeDay(c) else Tracker.startDay(c)
-                if (Tracker.btMode(c)) Tracker.btConnected(c)
+                if (drive) Tracker.btConnected(c)
                 TrackerService.start(c)
                 val at = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())
                 Notify.autoDay(c, if (resume) "Day picked back up" else "Day started", "${if (resume) "Continued" else "Started"} at $at when $name connected.", false)
@@ -47,8 +49,9 @@ object AutoDay {
         Notify.autoDay(c, "$name connected", if (resume) "Tap to pick your day back up." else "Tap to start your day.", true)
     }
 
-    fun onDisconnected(c: Context, addr: String) {
-        if (!addr.equals(Store.get(c, "autoStartAddr", ""), true) || !Tracker.btMode(c)) return
+    fun onDisconnected(c: Context, addr: String, force: Boolean = false) {
+        if (force) { if (Store.get(c, "autoBtDrive", "0") != "1") return }
+        else if (!addr.equals(Store.get(c, "autoStartAddr", ""), true) || !Tracker.btMode(c)) return
         if (Tracker.btDisconnected(c)) { TrackerService.ping(c); if (checkHome(c)) TrackerService.stop(c) }
     }
 
@@ -85,6 +88,7 @@ class BtReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        VanWatch.start(c)   // background watch for the vLinker doesn't survive a restart or update
         if (!Tracker.isRunning(c)) { StandbyService.start(c); return }   // no day running: just be on and ready
         if (Store.get(c, "autoBoot", "1") != "1") { StandbyService.start(c); return }
         val why = if (i.action == Intent.ACTION_BOOT_COMPLETED) "Your phone restarted" else "Companion updated"

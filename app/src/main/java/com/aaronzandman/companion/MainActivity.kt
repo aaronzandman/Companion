@@ -90,6 +90,7 @@ class MainActivity : Activity() {
         handlePlanner(intent)
         handleAuto(intent)
         StandbyService.start(this)
+        VanWatch.start(this)
     }
 
     /** Starts the day, or picks today's day back up if it ended automatically at home (e.g. lunch at home). */
@@ -292,6 +293,8 @@ class MainActivity : Activity() {
                     .put("autoBtDrive", Store.get(c, "autoBtDrive", "0") == "1")
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
+                    .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
+                    .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
                         .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
@@ -387,9 +390,31 @@ class MainActivity : Activity() {
             }, 6000)
         }
 
+        /** Looks for the vLinker over Bluetooth LE for ~8 s (turn the van on first) and remembers it for the background watch. Calls onVanFind(result). */
+        @SuppressLint("MissingPermission")
+        @JavascriptInterface fun vanFind() {
+            if (!btOk()) { askBluetooth(); return }
+            val scanner = getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner ?: run { web.evaluateJavascript("onVanFind({error:'Bluetooth is off'})", null); return }
+            val found = LinkedHashMap<String, String>()
+            val cb = object : ScanCallback() {
+                override fun onScanResult(type: Int, r: ScanResult) {
+                    val name = try { r.device.name } catch (_: SecurityException) { null } ?: r.scanRecord?.deviceName ?: return
+                    if (Regex("vlinker|vgate", RegexOption.IGNORE_CASE).containsMatchIn(name)) found[r.device.address] = name
+                }
+            }
+            try { scanner.startScan(cb) } catch (_: Exception) { web.evaluateJavascript("onVanFind({error:'Couldn\\'t scan'})", null); return }
+            web.postDelayed({
+                try { scanner.stopScan(cb) } catch (_: Exception) {}
+                val e = found.entries.firstOrNull()
+                if (e != null) { Store.put(this@MainActivity, "vanBleAddr", e.key); Store.put(this@MainActivity, "vanBleName", e.value); VanWatch.start(this@MainActivity) }
+                web.evaluateJavascript("onVanFind(${JSONObject().put("addr", e?.key ?: "").put("name", e?.value ?: "")})", null)
+            }, 8000)
+        }
+
         @JavascriptInterface fun setObd(addr: String, name: String, type: String) {
             Store.put(this@MainActivity, "obdAddr", addr); Store.put(this@MainActivity, "obdName", name)
             Store.put(this@MainActivity, "obdType", if (type in setOf("classic", "ble")) type else "auto")
+            VanWatch.start(this@MainActivity)
         }
 
         /** Connects and reads the odometer once; calls onObdTest(result) with the reading and a short log. */
@@ -639,8 +664,9 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby")) {
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch")) {
                 Store.put(this@MainActivity, key, value.take(80))
+                if (key == "vanWatch") VanWatch.start(this@MainActivity)
                 if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }
             }
         }
