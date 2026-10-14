@@ -115,6 +115,7 @@ object Notify {
 
     /** A quick on-screen message too (shows even when Companion is closed). */
     fun toast(c: Context, text: String) {
+        if (Store.get(c, "dayToast", "1") != "1") return
         android.os.Handler(android.os.Looper.getMainLooper()).post { try { android.widget.Toast.makeText(c.applicationContext, "Companion: $text", android.widget.Toast.LENGTH_LONG).show() } catch (_: Exception) {} }
     }
 

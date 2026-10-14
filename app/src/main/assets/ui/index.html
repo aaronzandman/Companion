@@ -259,6 +259,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="row" style="gap:6px;align-items:center"><span class="hint" id="vanHint" style="flex:1;min-width:0"></span><button class="btn sec" id="vanFind" style="width:auto;flex:none;margin:0;padding:8px 12px">Find my vLinker</button></div>
       <div class="set" style="display:block"><b>Also start when the van's own Bluetooth checks in</b><br><span class="hint">When the van starts, its radio (e.g. “Ford Transit”) links to the phone for a second. Start the van once with Companion open, then pick it here.</span>
         <select id="vanAcl" style="width:100%;margin-top:6px"></select></div>
+      <label class="set"><span><b>Show a toast when the day starts or ends</b><br><span class="hint">A short on-screen message, on top of the notification.</span></span><input type="checkbox" class="sw" id="dayToast"></label>
       <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Connected = driving, disconnected = stopped. GPS only places stops and measures miles.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
       <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day at home, then offers the email and MPG trips. Heading out again continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
       <div class="hint" id="autoEndHint"></div>
@@ -367,7 +368,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.6).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.7).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1054,7 +1055,7 @@ function renderAuto(){
       if(cur && !rec.some(r=>r.addr===cur)) rec.unshift({addr:cur,name:st.vanAclName||cur,t:0});
       rec.sort((a,b)=>(/transit|ford|sync|van/i.test(b.name)?1:0)-(/transit|ford|sync|van/i.test(a.name)?1:0));
       va.innerHTML=`<option value="">${rec.length?"Off — pick the van's Bluetooth…":"Off — start the van, then reopen this"}</option>`+rec.map(r=>`<option value="${esc(r.addr)}"${r.addr===cur?" selected":""}>${esc(r.name||r.addr)}${r.t?` · seen ${when(r.t)}`:""}</option>`).join(""); } }
-  $("vanWatch").checked=!!st.vanWatch;
+  $("vanWatch").checked=!!st.vanWatch; $("dayToast").checked=st.dayToast!==false;
   if(!VAN_FINDING) $("vanHint").textContent = st.vanErr ? `Couldn't start watching (${st.vanErr}). Check that Bluetooth is on.` : st.vanAddr ? `Watching for ${st.vanName||st.vanAddr}`+(st.vanSeen?` · last seen ${when(st.vanSeen)}`:"") : "Turn the van on, then tap Find my vLinker.";
   $("autoBoot").checked=st.autoBoot!==false; $("standby").checked=st.standby!==false;
   $("autoEnd").checked=!!st.autoEndHome; $("autoEnd").disabled=!st.home && !st.autoEndHome;
@@ -1066,6 +1067,7 @@ $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 let VAN_FINDING=false;
+$("dayToast").onchange=e=>{ A.setSetting("dayToast",e.target.checked?"1":"0"); track(e.target.checked?"day-toast-on":"day-toast-off"); refresh(); };
 $("vanAcl").onchange=e=>{ const o=e.target.selectedOptions[0]; A.setSetting("vanAclAddr",e.target.value); A.setSetting("vanAclName",e.target.value?(o.textContent.split(" · ")[0]):""); track(e.target.value?"van-acl-on":"van-acl-off"); if(e.target.value) toast(`Day will also start when ${o.textContent.split(" · ")[0]} checks in.`); refresh(); };
 
 $("vanWatch").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("vanWatch",e.target.checked?"1":"0"); track(e.target.checked?"van-watch-on":"van-watch-off"); refresh(); };
