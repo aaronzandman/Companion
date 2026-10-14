@@ -44,7 +44,7 @@ object VanWatch {
                 .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE).setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
         }.build()
         Store.put(c, "vanLostOk", if (lostOk) "1" else "0")
-        try { sc.startScan(filters, settings, pi(c)); Store.put(c, "vanWatchErr", "") } catch (e: Exception) { Store.put(c, "vanWatchErr", e.javaClass.simpleName) }
+        try { val r = sc.startScan(filters, settings, pi(c)); Store.put(c, "vanWatchErr", if (r == 0) "" else "scan error $r") } catch (e: Exception) { Store.put(c, "vanWatchErr", e.javaClass.simpleName) }
     }
 
     @SuppressLint("MissingPermission")
