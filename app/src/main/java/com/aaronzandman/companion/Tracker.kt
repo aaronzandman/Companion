@@ -243,6 +243,8 @@ object Tracker {
     }
 
     private val TYPES = setOf("DRIVE", "STORE", "STOP", "HOME")
+    /** Ticket numbers typed for a store visit: digits only, comma separated, at most 12. */
+    private fun cleanOrders(v: String) = Regex("\\d{6,12}").findAll(v).map { it.value }.distinct().take(12).joinToString(",")
     private fun sorted(a: JSONArray): JSONArray {
         val l = (0 until a.length()).map { a.getJSONObject(it) }.sortedBy { it.optLong("start") }; val o = JSONArray(); l.forEach { o.put(it) }; return o
     }
@@ -253,7 +255,7 @@ object Tracker {
         val segs = Store.segments(c); var found = false
         for (i in 0 until segs.length()) { val g = segs.getJSONObject(i); if (g.optLong("start") != origStart) continue
             found = true
-            g.put("start", st).put("end", en).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+            g.put("start", st).put("end", en).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "").put("orders", if (type == "STORE") cleanOrders(j.optString("orders")) else "")
             if (type == "STOP" && j.optBoolean("fuel")) g.put("tag", "FUEL") else g.remove("tag")
             g.put("edited", System.currentTimeMillis()) }
         if (found) Store.saveSegments(c, sorted(segs))
@@ -266,7 +268,7 @@ object Tracker {
         val st = j.optLong("start"); val type = j.optString("type"); val now = System.currentTimeMillis()
         val segs = Store.segments(c); val prevEnd = if (segs.length() > 0) segs.getJSONObject(segs.length() - 1).optLong("end") else 0L
         if (type !in TYPES || st >= now || st < prevEnd - 60_000L || st < s.optLong("dayStart", 0L) - 60_000L) return@synchronized false
-        cur.put("start", st).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+        cur.put("start", st).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "").put("orders", if (type == "STORE") cleanOrders(j.optString("orders")) else "")
         if (type == "STOP" && j.optBoolean("fuel")) cur.put("tag", "FUEL") else cur.remove("tag")
         if (type == "STORE") s.put("reached", true)
         cur.put("edited", now); s.remove("cand"); save(c, s); true
@@ -283,7 +285,7 @@ object Tracker {
         for (i in 0 until list.length()) { val j = list.getJSONObject(i)
             val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")
             if (en <= st || type !in TYPES || en > now + 60_000L || f.format(java.util.Date(st)) != day) continue
-            val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+            val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "").put("orders", if (type == "STORE") cleanOrders(j.optString("orders")) else "")
                 .put("start", st).put("end", en).put("m", Math.round(j.optDouble("m", 0.0))).put("imported", true)
             if (type == "STOP" && j.optString("tag") == "FUEL") g.put("tag", "FUEL")
             keep.put(g); n++ }
@@ -294,7 +296,7 @@ object Tracker {
     fun addSegment(c: Context, j: JSONObject): Boolean = synchronized(lock) {
         val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")
         if (en <= st || type !in TYPES || en > System.currentTimeMillis() + 60_000L) return@synchronized false
-        val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+        val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "").put("orders", if (type == "STORE") cleanOrders(j.optString("orders")) else "")
             .put("start", st).put("end", en).put("m", 0).put("manual", true)
         if (type == "STOP" && j.optBoolean("fuel")) g.put("tag", "FUEL")
         // Make room: entries overlapping the new one are trimmed, or split around it (a long drive becomes drive / visit / drive).

@@ -546,7 +546,7 @@ function render(){
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const payLine=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
     const fuelBtn=g.type==="STOP"?` <button class="fuel${g.tag==="FUEL"?" on":""}" data-fuel="${g.start}" data-on="${g.tag==="FUEL"?1:0}">⛽ ${g.tag==="FUEL"?"Fuel stop":"Fuel?"}</button>`:"";
-    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
+    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}</div>`:""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
   { // override buttons: only while the day runs; each shows until used (change or undo it in the log window)
     const ov=(S.overrides||{})[dayKey(Date.now())]||{}, anyWork=cl.pieces.some(p=>p.pay==="WORK");
@@ -595,6 +595,15 @@ function odoLine(g){
   const o=a||b; return o?`<div class="odo">Odometer ${fmtMi(o.mi)}</div>`:"";
 }
 function driveMiles(segs){ let m=0, any=false; segs.filter(g=>g.type==="DRIVE").forEach(g=>{ const a=odoAt(g.start), b=g.live?null:odoAt(g.end); if(a&&b&&b.mi>=a.mi){ m+=b.mi-a.mi; any=true; } }); return any?m:null; }
+// Ticket (order) numbers active at a store visit: the ones you typed for it, otherwise the dispatch texts for that store
+// received in the 14 days before you left it.
+function visitTickets(g){
+  if(!g||g.type!=="STORE") return [];
+  if(g.orders!=null&&g.orders!=="") return String(g.orders).split(/[^0-9]+/).filter(Boolean);
+  const end=g.end||Date.now();
+  return [...new Set((S.dispatches||[]).filter(d=>String(d.store)===String(g.store)&&d.receivedAt<=end&&d.receivedAt>=end-14*864e5).sort((a,b)=>a.receivedAt-b.receivedAt).map(d=>String(d.order)))];
+}
+const ticketTxt=g=>{ const t=visitTickets(g); return t.length?` · Tickets ${t.map(x=>"#"+x).join(", ")}`:""; };
 function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="HOME") return "At home"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return g.tag==="FUEL"?"Fuel stop":"Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
@@ -734,7 +743,7 @@ function dayText(segs,title,live){
   let t=`Time log – ${title}\nWork ${fh(ps.WORK)} hrs · Personal ${fh(ps.PERSONAL)} hrs\n`;
   if(ps.anyMi) t+=`Work miles ${fmtMi(ps.WORKmi)} · Personal miles ${fmtMi(ps.PERSONALmi)}${ps.gps?" (≈ some by GPS)":""}\n`;
   t+=`Driving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs\n`;
-  pieces.forEach(p=>{ t+=`\n${tm(p.start)}–${p.live&&p.end>=p.seg.end?"now":tm(p.end)}  ${payName[p.pay]}: ${label(p)}${p.tag==="FUEL"?" (fuel)":""} (${hm(p.end-p.start)} hrs)`;
+  pieces.forEach(p=>{ t+=`\n${tm(p.start)}–${p.live&&p.end>=p.seg.end?"now":tm(p.end)}  ${payName[p.pay]}: ${label(p)}${p.tag==="FUEL"?" (fuel)":""} (${hm(p.end-p.start)} hrs)${ticketTxt(p.seg)}`;
     if(p.mi) t+=`  ${miTxt(p.mi)}`;
     const a=odoAt(p.start), b=odoAt(p.end); if(p.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)}`; });
   if(notes.length) t+="\n\nNote: "+notes.join(" ");
@@ -743,15 +752,15 @@ function dayText(segs,title,live){
 const csvq=v=>{ v=String(v??""); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
 function dayCsv(segs,live){
   const {pieces}=classify(segs,live), ps=paySum(pieces);
-  const rows=[["Date","Start","End","Time type","Activity","Store","City","Hours","Miles","Miles from","Odometer start","Odometer end"]];
+  const rows=[["Date","Start","End","Time type","Activity","Store","City","Tickets","Hours","Miles","Miles from","Odometer start","Odometer end"]];
   pieces.forEach(p=>{ const si=p.type==="STORE"?store(p.store):{}, a=p.type==="DRIVE"?odoAt(p.start):null, b=p.type==="DRIVE"?odoAt(p.end):null;
     rows.push([new Date(p.start).toLocaleDateString(), tm(p.start), p.live&&p.end>=p.seg.end?"in progress":tm(p.end), payName[p.pay],
       p.type==="DRIVE"?"Driving":p.type==="STORE"?"At store":p.type==="HOME"?"At home":p.tag==="FUEL"?"Fuel stop":"Stopped",
-      p.type==="STORE"?p.store:"", si.city||"", hm(p.end-p.start), p.mi?p.mi.v.toFixed(1):"", p.mi?(p.mi.src==="gps"?"GPS (approx.)":"Odometer"):"", a?a.mi.toFixed(1):"", b?b.mi.toFixed(1):""]); });
+      p.type==="STORE"?p.store:"", si.city||"", visitTickets(p.seg).join(" "), hm(p.end-p.start), p.mi?p.mi.v.toFixed(1):"", p.mi?(p.mi.src==="gps"?"GPS (approx.)":"Odometer"):"", a?a.mi.toFixed(1):"", b?b.mi.toFixed(1):""]); });
   rows.push([]);
-  rows.push(["Total","","","Work","","","",fh(ps.WORK),ps.anyMi?ps.WORKmi.toFixed(1):""]);
-  rows.push(["Total","","","Personal","","","",fh(ps.PERSONAL),ps.anyMi?ps.PERSONALmi.toFixed(1):""]);
-  rows.push(["Total","","","Off the clock","","","",fh(ps.OFF)]);
+  rows.push(["Total","","","Work","","","","",fh(ps.WORK),ps.anyMi?ps.WORKmi.toFixed(1):""]);
+  rows.push(["Total","","","Personal","","","","",fh(ps.PERSONAL),ps.anyMi?ps.PERSONALmi.toFixed(1):""]);
+  rows.push(["Total","","","Off the clock","","","","",fh(ps.OFF)]);
   return rows.map(r=>r.map(csvq).join(",")).join("\r\n")+"\r\n";
 }
 function allSegs(){ return (S.segments||[]).concat((S.today||[]).filter(g=>g.live)); }
@@ -824,7 +833,7 @@ function placeName(g){
 function mpgTrips(segs,live){
   const {pieces}=classify(segs,live), ps=pieces.slice().sort((a,b)=>a.start-b.start);   // time at home is "off the clock" but still marks arriving home
   const trips=[]; let from=segs.length&&segs.slice().sort((a,b)=>a.start-b.start)[0].type==="HOME"?"Home":(S.settings||{}).home?"Home":"Start", leg=[], cur=null;
-  const closeLeg=to=>{ if(cur){ leg.push(cur); cur=null; }
+  const closeLeg=(to,seg)=>{ if(cur){ leg.push(cur); cur=null; } leg.forEach(t=>t.tickets=visitTickets(seg));
     leg.forEach((t,i)=>{ t.from=from; t.to=to; t.part=leg.length<2?"":t.personal?"personal part":"work part"; trips.push(t); }); leg=[]; };
   ps.forEach(p=>{
     const moving=p.pay!=="OFF"&&(p.type==="DRIVE"||(p.type==="STOP"&&p.tag!=="FUEL"&&(cur||leg.length)));
@@ -833,7 +842,7 @@ function mpgTrips(segs,live){
       if(cur&&cur.personal!==personal){ leg.push(cur); cur=null; }
       if(!cur) cur={start:p.start,end:p.end,personal,miles:0,gps:false,odoMiles:true};
       cur.end=p.end; if(p.mi){ cur.miles+=p.mi.v; if(p.mi.src==="gps") cur.gps=true; }
-    } else { const pl=placeName(p.seg); if(pl&&(cur||leg.length)) closeLeg(pl); if(pl) from=pl; }
+    } else { const pl=placeName(p.seg); if(pl&&(cur||leg.length)) closeLeg(pl,p.seg); if(pl) from=pl; }
   });
   if(cur||leg.length) closeLeg(live?"(still driving)":"End of day");   // no arrival recorded: still loggable
   // whole-mile odometers, chained so each trip starts where the last one ended
@@ -845,6 +854,7 @@ function mpgTrips(segs,live){
     if(s!==null&&e!==null&&e<s) e=s;
     t.startOdo=s; t.endOdo=e; t.adapter=!!(b&&b.src==="adapter"); t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
     t.purpose=`${t.from} to ${t.to}`+(t.part?` (${t.part})`:"");
+    if(t.tickets&&t.tickets.length){ const withT=`${t.purpose} #${t.tickets.join(" #")}`; if(withT.length<=100) t.purpose=withT; else { const one=`${t.purpose} #${t.tickets[0]} +${t.tickets.length-1}`; if(one.length<=100) t.purpose=one; } }
     t.purpose=t.purpose.slice(0,100); t.key=dayKey(t.start)+"@"+t.start; prevEnd=e;
   });
   return trips;
@@ -888,13 +898,14 @@ function renderLog(){
   const form=(g)=>`<div class="lform" data-form="${g?g.start:"new"}">
       <span>Type</span><select data-f="type">${[["DRIVE","Driving"],["STORE","At a store"],["STOP","Stopped"],["FUEL","Fuel stop"],["HOME","At home"]].map(([v,t])=>`<option value="${v}"${g&&(g.type===v&&!(v==="STOP"&&g.tag==="FUEL")||v==="FUEL"&&g.type==="STOP"&&g.tag==="FUEL")?" selected":""}>${t}</option>`).join("")}</select>
       <span>Store #</span><input data-f="store" inputmode="numeric" value="${g&&g.store?esc(g.store):""}" placeholder="Only for At a store">
+      <span>Tickets</span><input data-f="orders" inputmode="numeric" value="${g?esc(visitTickets(g).join(", ")):""}" placeholder="Order numbers, comma between">
       <span>Start</span><input type="time" data-f="start" value="${g?hhmm(g.start):""}">
       ${g&&g.live?`<span>End</span><span class="hint">Still going (now)</span>`:`<span>End</span><input type="time" data-f="end" value="${g?hhmm(g.end):""}">`}
       <div class="acts"><button class="btn" data-save="${g?g.start:"new"}"${g&&g.live?' data-live="1"':""}>Save</button>${g&&!g.live?`<button class="btn sec" data-delx="${g.start}">Delete</button>`:""}<button class="btn sec" data-cancel>Cancel</button></div></div>`;
   $("logList").innerHTML=(LOG_EDIT==="new"?form(null):"")+(segs.length?segs.slice().reverse().map(g=>{
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const pay=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
-    return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual?' <span class="hint">✎</span>':""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
+    return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual||g.imported?' <span class="hint">✎</span>':""}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}${g.orders?"":' <span class="hint">(from texts)</span>'}</div>`:""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
       <button class="lnk" data-edit="${g.start}">Edit</button></div>${LOG_EDIT===String(g.start)?form(g):""}</div>`; }).join("")
     : `<div class="empty">Nothing recorded this day.</div>`);
   $("logList").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{ LOG_EDIT=b.dataset.edit; renderLog(); });
@@ -907,7 +918,8 @@ function renderLog(){
     if(!st||!en){ toast("Enter a start and end time."); return; }
     if(en<=st){ toast("The end time must be after the start time."); return; }
     if(type==="STORE"&&!/^\d{2,5}$/.test(v("store"))){ toast("Enter the store number."); return; }
-    const j=JSON.stringify({type:type==="FUEL"?"STOP":type,fuel:type==="FUEL",store:v("store"),start:st,end:en});
+    const orders=type==="STORE"?(v("orders").match(/\d{6,12}/g)||[]).join(","):"";
+    const j=JSON.stringify({type:type==="FUEL"?"STOP":type,fuel:type==="FUEL",store:v("store"),orders,start:st,end:en});
     const ok=b.dataset.save==="new"?A.addSegment(j):live?A.editCurrent(b.dataset.save,j):A.editSegment(b.dataset.save,j);
     if(!ok){ toast(live?"Couldn't save that. The start must be before now and after the entry before it.":"Couldn't save that. Times can't be in the future."); return; }
     const over=segsForDay(LOG_DAY).filter(g=>String(g.start)!==b.dataset.save&&g.start<en&&g.end>st&&!(g.start===st&&g.end===en));
@@ -934,7 +946,7 @@ function csvRows(t){ const rows=[]; let row=[], f="", q=false;
 function parseLogCsv(text){
   const rows=csvRows(text.replace(/^\uFEFF/,"")); if(!rows.length) return {err:"The file is empty."};
   const h=rows[0].map(x=>x.trim().toLowerCase()), col=n=>h.indexOf(n);
-  const iD=col("date"), iS=col("start"), iE=col("end"), iA=col("activity"), iSt=col("store"), iM=col("miles");
+  const iD=col("date"), iS=col("start"), iE=col("end"), iA=col("activity"), iSt=col("store"), iM=col("miles"), iT=col("tickets");
   if(iD<0||iS<0||iE<0||iA<0) return {err:"The file needs Date, Start, End and Activity columns (like the spreadsheet Companion emails)."};
   const tm2=(d,v)=>{ const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d.trim())||/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(d.trim()); if(!m) return null;
     const [y,mo,da]=m[0].includes("-")?[+m[1],+m[2],+m[3]]:[+m[3],+m[1],+m[2]];
@@ -948,7 +960,8 @@ function parseLogCsv(text){
     const k=kind(r[iA]||""), st=tm2(r[iD]||"",r[iS]||""); let en=tm2(r[iD]||"",(r[iE]||"").replace(/in progress/i,""));
     if(!k||!st||!en){ bad.push(i+2); return; }
     if(en<=st) en+=864e5;   // past midnight
-    const g={type:k[0],tag:k[1],store:k[0]==="STORE"?String(r[iSt]||"").replace(/\D/g,""):"",start:st,end:en,m:(parseFloat(r[iM])||0)*1609.344};
+    const g={type:k[0],tag:k[1],store:k[0]==="STORE"?String(r[iSt]||"").replace(/\D/g,""):"",start:st,end:en,m:(parseFloat(r[iM])||0)*1609.344,
+      orders:k[0]==="STORE"&&iT>=0?((r[iT]||"").match(/\d{6,12}/g)||[]).join(","):""};
     const p=out[out.length-1];   // Companion's own file splits a drive into personal/work rows: join them back up
     if(p&&p.type===g.type&&p.store===g.store&&p.tag===g.tag&&Math.abs(p.end-g.start)<60e3){ p.end=g.end; p.m+=g.m; } else out.push(g);
   });
