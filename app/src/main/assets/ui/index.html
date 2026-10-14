@@ -853,7 +853,7 @@ function mpgTrips(segs,live){
     let e=b?Math.round(b.v):(s!==null?s+Math.round(t.miles):null);
     if(s!==null&&e!==null&&e<s) e=s;
     t.startOdo=s; t.endOdo=e; t.adapter=!!(b&&b.src==="adapter"); t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
-    t.purpose=`${t.from} to ${t.to}`+(t.part?` (${t.part})`:"");
+    t.purpose=`${t.to}`+(t.part?` (${t.part})`:"");   // MPG description: just where you arrived (+ its tickets below)
     if(t.tickets&&t.tickets.length){ const withT=`${t.purpose} #${t.tickets.join(" #")}`; if(withT.length<=100) t.purpose=withT; else { const one=`${t.purpose} #${t.tickets[0]} +${t.tickets.length-1}`; if(one.length<=100) t.purpose=one; } }
     t.purpose=t.purpose.slice(0,100); t.key=dayKey(t.start)+"@"+t.start; prevEnd=e;
   });
