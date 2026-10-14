@@ -57,7 +57,7 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk Companion.apk
           cp diag/build/outputs/apk/release/diag-release.apk BTDiag.apk
-          cp sap/build/outputs/apk/release/sap-release.apk SAPCapture.apk
+          cp sap/build/outputs/apk/release/sap-release.apk RoutePlannerSAP.apk
           echo "ver=$(grep -oP 'appVersion = "\K[0-9.]+' app/build.gradle.kts).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Signer fingerprint
@@ -83,7 +83,7 @@ jobs:
           files: |
             Companion.apk
             BTDiag.apk
-            SAPCapture.apk
+            RoutePlannerSAP.apk
           make_latest: true
 
       - name: Save the build log for review (only if the build failed)

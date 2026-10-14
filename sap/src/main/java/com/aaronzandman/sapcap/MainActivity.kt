@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#F2F4F6")) }
 
         root.addView(TextView(this).apply {
-            text = "SAP Capture — test"; textSize = 18f; setTypeface(typeface, Typeface.BOLD)
+            text = "Route Planner SAP"; textSize = 18f; setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE); setBackgroundColor(GREEN); setPadding(dp(14), dp(12), dp(14), dp(12))
         })
 
