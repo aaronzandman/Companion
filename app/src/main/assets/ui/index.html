@@ -833,7 +833,7 @@ function placeName(g){
 function mpgTrips(segs,live){
   const {pieces}=classify(segs,live), ps=pieces.slice().sort((a,b)=>a.start-b.start);   // time at home is "off the clock" but still marks arriving home
   const trips=[]; let from=segs.length&&segs.slice().sort((a,b)=>a.start-b.start)[0].type==="HOME"?"Home":(S.settings||{}).home?"Home":"Start", leg=[], cur=null;
-  const closeLeg=(to,seg)=>{ if(cur){ leg.push(cur); cur=null; } leg.forEach(t=>t.tickets=visitTickets(seg));
+  const closeLeg=(to,seg)=>{ if(cur){ leg.push(cur); cur=null; } leg.forEach(t=>{ t.tickets=visitTickets(seg); t.toNum=seg&&seg.type==="STORE"?String(seg.store):""; });
     leg.forEach((t,i)=>{ t.from=from; t.to=to; t.part=leg.length<2?"":t.personal?"personal part":"work part"; trips.push(t); }); leg=[]; };
   ps.forEach(p=>{
     const moving=p.pay!=="OFF"&&(p.type==="DRIVE"||(p.type==="STOP"&&p.tag!=="FUEL"&&(cur||leg.length)));
@@ -853,7 +853,7 @@ function mpgTrips(segs,live){
     let e=b?Math.round(b.v):(s!==null?s+Math.round(t.miles):null);
     if(s!==null&&e!==null&&e<s) e=s;
     t.startOdo=s; t.endOdo=e; t.adapter=!!(b&&b.src==="adapter"); t.mi=(s!==null&&e!==null)?e-s:Math.round(t.miles);
-    t.purpose=`${t.to}`+(t.part?` (${t.part})`:"");   // MPG description: just where you arrived (+ its tickets below)
+    t.purpose=`${t.toNum||t.to}`+(t.part?` (${t.part})`:"");   // MPG description: store number you arrived at (+ its tickets)   // MPG description: just where you arrived (+ its tickets below)
     if(t.tickets&&t.tickets.length){ const withT=`${t.purpose} #${t.tickets.join(" #")}`; if(withT.length<=100) t.purpose=withT; else { const one=`${t.purpose} #${t.tickets[0]} +${t.tickets.length-1}`; if(one.length<=100) t.purpose=one; } }
     t.purpose=t.purpose.slice(0,100); t.key=dayKey(t.start)+"@"+t.start; prevEnd=e;
   });
