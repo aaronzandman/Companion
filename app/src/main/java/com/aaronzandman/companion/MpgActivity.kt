@@ -159,6 +159,18 @@ class MpgActivity : Activity() {
     }
     mark(dt);
   }
+  // MPG's own page scripts can reset Personal right after loading: set it again shortly, unless you've changed it yourself.
+  var want=t.personal?'yes':'no', touched=false;
+  function perText(){ return per&&per.selectedIndex>=0 ? per.options[per.selectedIndex].text.trim().toLowerCase() : ''; }
+  function setPer(){ if(!per||touched) return; for(var k=0;k<per.options.length;k++){ if(per.options[k].text.trim().toLowerCase()===want){ if(per.selectedIndex!==k){ per.selectedIndex=k; set(per, per.value); } } } }
+  if(per && !per.__cpw){ per.__cpw=1; per.addEventListener('change',function(ev){ if(ev.isTrusted) touched=true; }); }
+  [400,1000,2000,3500].forEach(function(ms){ setTimeout(setPer, ms); });
+  // At Save: if Personal doesn't match this trip, ask first.
+  var save=q('EditJournalSubmitBtn');
+  if(save && !save.__cpw){ save.__cpw=1; save.addEventListener('click',function(ev){
+    var got=perText();
+    if(per && got && got!==want && !window.confirm('Companion has this trip as Personal: '+(t.personal?'Yes':'No')+', but the form says '+(got==='yes'?'Yes':'No')+'.\n\nOK = save it as it is now.\nCancel = go back and check.')){ ev.preventDefault(); ev.stopImmediatePropagation(); }
+  }, true); }
   window.scrollTo(0,0);
   return JSON.stringify({ok:true, start:start, end:end, mpgStart:mpgStart, dateSet:dateSet, dateBefore:dateBefore, dateAfter:dt?dt.value:'',
     jq:!!window.jQuery, picker:!!(window.jQuery&&jQuery.fn&&jQuery.fn.datepicker)});
