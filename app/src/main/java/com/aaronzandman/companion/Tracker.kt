@@ -259,6 +259,19 @@ object Tracker {
         if (found) Store.saveSegments(c, sorted(segs))
         found
     }
+    /** Changes the entry in progress (type, store, when it started). It keeps going until the next change. */
+    fun editCurrent(c: Context, origStart: Long, j: JSONObject): Boolean = synchronized(lock) {
+        val s = state(c); val cur = s.optJSONObject("cur") ?: return@synchronized false
+        if (!s.optBoolean("running") || cur.optLong("start") != origStart) return@synchronized false
+        val st = j.optLong("start"); val type = j.optString("type"); val now = System.currentTimeMillis()
+        val segs = Store.segments(c); val prevEnd = if (segs.length() > 0) segs.getJSONObject(segs.length() - 1).optLong("end") else 0L
+        if (type !in TYPES || st >= now || st < prevEnd - 60_000L || st < s.optLong("dayStart", 0L) - 60_000L) return@synchronized false
+        cur.put("start", st).put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+        if (type == "STOP" && j.optBoolean("fuel")) cur.put("tag", "FUEL") else cur.remove("tag")
+        if (type == "STORE") s.put("reached", true)
+        cur.put("edited", now); s.remove("cand"); save(c, s); true
+    }
+
     /** Adds an entry you missed (for example a stop before you started the timer). */
     fun addSegment(c: Context, j: JSONObject): Boolean = synchronized(lock) {
         val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")

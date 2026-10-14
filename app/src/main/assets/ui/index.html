@@ -548,7 +548,8 @@ function render(){
     $("ovEnd").hidden=!!ov.we||!anyWork;
     if($("ovStart").hidden&&$("ovEnd").hidden) $("ovRow").hidden=true;
   }
-  if(!$("logDlg").hidden) renderLog();
+  // Redraw the log window only when you're not in the middle of editing (a redraw would wipe what you're typing).
+  if(!$("logDlg").hidden && !LOG_EDIT && !$("logDlg").contains(document.activeElement)) renderLog();
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
@@ -882,26 +883,27 @@ function renderLog(){
       <span>Type</span><select data-f="type">${[["DRIVE","Driving"],["STORE","At a store"],["STOP","Stopped"],["FUEL","Fuel stop"],["HOME","At home"]].map(([v,t])=>`<option value="${v}"${g&&(g.type===v&&!(v==="STOP"&&g.tag==="FUEL")||v==="FUEL"&&g.type==="STOP"&&g.tag==="FUEL")?" selected":""}>${t}</option>`).join("")}</select>
       <span>Store #</span><input data-f="store" inputmode="numeric" value="${g&&g.store?esc(g.store):""}" placeholder="Only for At a store">
       <span>Start</span><input type="time" data-f="start" value="${g?hhmm(g.start):""}">
-      <span>End</span><input type="time" data-f="end" value="${g?hhmm(g.end):""}">
-      <div class="acts"><button class="btn" data-save="${g?g.start:"new"}">Save</button>${g?`<button class="btn sec" data-delx="${g.start}">Delete</button>`:""}<button class="btn sec" data-cancel>Cancel</button></div></div>`;
+      ${g&&g.live?`<span>End</span><span class="hint">Still going (now)</span>`:`<span>End</span><input type="time" data-f="end" value="${g?hhmm(g.end):""}">`}
+      <div class="acts"><button class="btn" data-save="${g?g.start:"new"}"${g&&g.live?' data-live="1"':""}>Save</button>${g&&!g.live?`<button class="btn sec" data-delx="${g.start}">Delete</button>`:""}<button class="btn sec" data-cancel>Cancel</button></div></div>`;
   $("logList").innerHTML=(LOG_EDIT==="new"?form(null):"")+(segs.length?segs.slice().reverse().map(g=>{
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const pay=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
     return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual?' <span class="hint">✎</span>':""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
-      ${g.live?'<span class="hint">in progress</span>':`<button class="lnk" data-edit="${g.start}">Edit</button>`}</div>${LOG_EDIT===String(g.start)?form(g):""}</div>`; }).join("")
+      <button class="lnk" data-edit="${g.start}">Edit</button></div>${LOG_EDIT===String(g.start)?form(g):""}</div>`; }).join("")
     : `<div class="empty">Nothing recorded this day.</div>`);
   $("logList").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{ LOG_EDIT=b.dataset.edit; renderLog(); });
   $("logList").querySelectorAll("[data-cancel]").forEach(b=>b.onclick=()=>{ LOG_EDIT=null; renderLog(); });
   $("logList").querySelectorAll("[data-delx]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.delx); LOG_EDIT=null; refresh(); renderLog(); } });
   $("logList").querySelectorAll("[data-save]").forEach(b=>b.onclick=()=>{
     const f=b.closest(".lform"), v=n=>f.querySelector(`[data-f="${n}"]`).value.trim(), type=v("type");
-    const st=atDay(LOG_DAY,v("start")), en=atDay(LOG_DAY,v("end"));
+    const live=b.dataset.live==="1", endEl=f.querySelector('[data-f="end"]');
+    const st=atDay(LOG_DAY,v("start")), en=live?Date.now():atDay(LOG_DAY,endEl?endEl.value.trim():"");
     if(!st||!en){ toast("Enter a start and end time."); return; }
     if(en<=st){ toast("The end time must be after the start time."); return; }
     if(type==="STORE"&&!/^\d{2,5}$/.test(v("store"))){ toast("Enter the store number."); return; }
     const j=JSON.stringify({type:type==="FUEL"?"STOP":type,fuel:type==="FUEL",store:v("store"),start:st,end:en});
-    const ok=b.dataset.save==="new"?A.addSegment(j):A.editSegment(b.dataset.save,j);
-    if(!ok){ toast("Couldn't save that. Times can't be in the future."); return; }
+    const ok=b.dataset.save==="new"?A.addSegment(j):live?A.editCurrent(b.dataset.save,j):A.editSegment(b.dataset.save,j);
+    if(!ok){ toast(live?"Couldn't save that. The start must be before now and after the entry before it.":"Couldn't save that. Times can't be in the future."); return; }
     const over=segsForDay(LOG_DAY).filter(g=>String(g.start)!==b.dataset.save&&g.start<en&&g.end>st&&!(g.start===st&&g.end===en));
     track(b.dataset.save==="new"?"log-add":"log-edit"); LOG_EDIT=null; refresh(); renderLog();
     toast(over.length?"Saved. Heads up: it overlaps another entry; adjust that one too.":"Saved.");

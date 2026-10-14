@@ -439,6 +439,8 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun editSegment(start: String, json: String): Boolean =
             try { Tracker.editSegment(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
+        @JavascriptInterface fun editCurrent(start: String, json: String): Boolean =
+            try { Tracker.editCurrent(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
         @JavascriptInterface fun addSegment(json: String): Boolean = try { Tracker.addSegment(this@MainActivity, JSONObject(json)) } catch (_: Exception) { false }
         /** Work-time overrides for one day: {"ws": work started (ms), "we": work ended (ms)}; empty clears. */
         @JavascriptInterface fun setOverride(day: String, json: String) {
