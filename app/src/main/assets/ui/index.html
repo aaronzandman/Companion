@@ -363,7 +363,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.2).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.3).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1272,7 +1272,7 @@ function onUpdate(r){
   if(manual){ UPD_BUSY=false; $("updBtn").disabled=false; $("updBtn").textContent="Check for updates"; }
   refresh();
   if(r.ready && r.tag){ u.innerHTML=`<b>Companion ${esc(verTxt(r.tag))} is ready to install.</b> You have ${esc(verTxt(S.version))}. Your data stays.<button class="btn" onclick="A.installUpdate()">Install now</button>`; u.classList.add("show");
-    if(startup && confirm(`Companion ${verTxt(r.tag)} is ready (you have ${verTxt(S.version)}).\n\nInstall it now? Your data stays.`)) A.installUpdate();
+    if(startup && !r.native && confirm(`Companion ${verTxt(r.tag)} is ready (you have ${verTxt(S.version)}).\n\nInstall it now? Your data stays.`)) A.installUpdate();
     if(manual) toast(`Downloaded ${verTxt(r.tag)}. Tap Install now.`); return; }
   if(r.error){ if(manual) toast(r.error==="download"?`Couldn't download ${verTxt(r.tag)}: ${r.why||"try again"}.`:r.error==="busy"?"GitHub is busy right now. Try again in a while.":"Couldn't reach GitHub. Check your connection."); return; }
   u.classList.remove("show");
@@ -1288,7 +1288,9 @@ window.startupUpdate=()=>{
   const u=$("upd"); if(u.querySelector("button")) return;   // an update is already waiting to be installed
   UPD_RUNNING=true; UPD_LAST=Date.now(); u.innerHTML="Checking for updates…"; u.classList.add("show","checking"); A.checkUpdateStartup();
 };
-try{ if(A.checkUpdateStartup) startupUpdate(); else A.checkUpdate(false); setInterval(()=>A.checkUpdate(false), 6*3600*1000); }catch(e){}
+// The app itself checks every time it opens or comes back (see MainActivity); the page just shows progress and results.
+window.onUpdChecking=()=>{ const u=$("upd"); if(u.querySelector("button")) return; u.innerHTML="Checking for updates…"; u.classList.add("show","checking"); };
+try{ setInterval(()=>A.checkUpdate(false), 6*3600*1000); }catch(e){}
 // ---- startup permissions check ----
 const PERMS=[
   ["sms","Read dispatch texts","So new calls show up automatically.",()=>A.askSms()],

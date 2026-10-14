@@ -154,7 +154,35 @@ class MainActivity : Activity() {
     }
 
     // Every time Companion comes to the front: refresh, and check for an update first (the page limits it to once a minute).
-    override fun onResume() { super.onResume(); if (::web.isInitialized) web.evaluateJavascript("window.refresh&&refresh();window.startupUpdate&&startupUpdate()", null) }
+    override fun onResume() { super.onResume(); if (::web.isInitialized) { web.evaluateJavascript("window.refresh&&refresh()", null); startupUpdateCheck() } }
+
+    /**
+     * Whenever Companion opens or comes back to the front (at most once a minute), check GitHub for a newer version first.
+     * Done by the app itself, not the page: a short "Checking for updates…" message, the download (with progress on the page),
+     * then an Install dialog, or "up to date".
+     */
+    private var lastUpdCheck = 0L
+    private fun startupUpdateCheck() {
+        val now = System.currentTimeMillis(); if (now - lastUpdCheck < 60_000L) return; lastUpdCheck = now
+        Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
+        web.evaluateJavascript("window.onUpdChecking&&onUpdChecking()", null)
+        Thread {
+            val r = Updater.check(this, 0L) { pct -> runOnUiThread { web.evaluateJavascript("window.onUpdProgress&&onUpdProgress($pct,true)", null) } }
+            r.put("startup", true).put("native", true)
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                web.evaluateJavascript("window.onUpdate&&onUpdate($r)", null)
+                val tag = r.optString("tag").removePrefix("v")
+                when {
+                    r.optBoolean("ready") -> android.app.AlertDialog.Builder(this).setTitle("Update ready")
+                        .setMessage("Companion $tag is ready (you have ${BuildConfig.VERSION_NAME}).\n\nInstall it now? Your data stays.")
+                        .setPositiveButton("Install") { _, _ -> install() }.setNegativeButton("Later", null).show()
+                    r.optBoolean("upToDate") -> Toast.makeText(this, "Companion is up to date (${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                    r.has("error") -> Toast.makeText(this, "Couldn't check for updates: " + (r.optString("why").ifBlank { "no connection to GitHub" }), Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
 
     @Deprecated("Activity result API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
