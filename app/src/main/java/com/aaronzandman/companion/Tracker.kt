@@ -86,6 +86,14 @@ object Tracker {
         val segs = Store.segments(c)
         val g = JSONObject().put("type", cur.optString("type")).put("store", cur.optString("store"))
             .put("start", start).put("end", end).put("m", Math.round(cur.optDouble("m", 0.0)))
+        if (cur.optString("type") == "DRIVE" && cur.has("ms")) {
+            val m = cur.optDouble("m", 0.0); val ms = cur.optDouble("ms", 0.0)
+            g.put("ms", Math.round(ms))
+            if (maxOf(m, ms) > 800.0 && Math.abs(m - ms) / maxOf(m, ms) > 0.10) {
+                g.put("chk", Math.round((m - ms) / maxOf(m, ms) * 100))
+                DiagLog.w(c, "MILES", "drive distance check: GPS points %.2f mi vs GPS speed %.2f mi — differ by more than 10%%".format(m / 1609.344, ms / 1609.344))
+            }
+        }
         cur.optJSONArray("trk")?.let { trk -> trk.put(JSONArray().put(end / 1000).put(Math.round(cur.optDouble("m", 0.0)))); g.put("trk", trk) }
         if (cur.optString("tag").isNotEmpty()) g.put("tag", cur.optString("tag"))
         segs.put(g)
@@ -117,8 +125,27 @@ object Tracker {
         val nearFor = if (near != null) t - (s.optJSONObject("near")?.optLong("since") ?: t) else 0L
         val atHome = home(c)?.let { Stores.meters(it.first, it.second, lat, lng) <= HOME_M } == true
         val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", t)
-        // GPS distance while moving (ignores parked jitter and impossible jumps)
-        if (stepM in 0.0..5000.0 && speed >= 2.0) cur.put("m", cur.optDouble("m", 0.0) + stepM)
+        // GPS distance while moving, from good fixes only (±30 m, or ±100 m after a 30 s gap), ignoring parked jitter and impossible jumps
+        if (speed >= 2.0) s.put("lastMove", t)
+        run {
+            val lg = s.optJSONObject("lg")
+            val gap = if (lg != null) t - lg.optLong("t") else Long.MAX_VALUE
+            if (acc <= 30f || (acc <= 100f && gap > 30_000L)) {
+                val d = if (lg != null) Stores.meters(lg.optDouble("lat"), lg.optDouble("lng"), lat, lng) else 0.0
+                // Small moves stay pending until they add up past the fix's uncertainty (crawling still counts; jitter doesn't).
+                if (lg == null || d >= maxOf(acc.toDouble(), 5.0) || gap > 60_000L) {
+                    if (lg != null && gap in 1..600_000L && d / (gap / 1000.0) < 60.0 && speed >= 2.0) cur.put("m", cur.optDouble("m", 0.0) + d)
+                    s.put("lg", JSONObject().put("lat", lat).put("lng", lng).put("t", t))
+                }
+            }
+            // Cross-check: distance from the GPS's own speed (doesn't cut corners). Only between close, good fixes.
+            if (speedIn != null && acc <= 30f) {
+                val ps = s.optJSONObject("ps")
+                if (ps != null && t - ps.optLong("t") in 1..15_000L && cur.optString("type") == "DRIVE")
+                    cur.put("ms", cur.optDouble("ms", 0.0) + (ps.optDouble("v") + speedIn) / 2.0 * (t - ps.optLong("t")) / 1000.0)
+                s.put("ps", JSONObject().put("v", speedIn.toDouble()).put("t", t))
+            }
+        }
         // Where a stop is (average of good fixes), so a stop can still be matched to a store when it ends.
         if (acc <= 100f) cur.put("sLat", cur.optDouble("sLat", 0.0) + lat).put("sLng", cur.optDouble("sLng", 0.0) + lng).put("sN", cur.optInt("sN", 0) + 1)
         // Distance track: a point at least every 60 s, so miles can be split at any moment of a drive.
@@ -150,7 +177,8 @@ object Tracker {
         } else {
             val cand = s.optJSONObject("cand")
             if (cand != null && cand.optString("type") == obsType && cand.optString("store") == obsStore) {
-                val need = when (obsType) { "DRIVE" -> DRIVE_MS; "STORE", "HOME" -> STORE_MS; else -> STOP_MS }
+                val engine = s.optBoolean("engine") && t - s.optLong("engineT") < 6 * 3600_000L
+                val need = when (obsType) { "DRIVE" -> if (engine) 5_000L else DRIVE_MS; "STORE", "HOME" -> STORE_MS; else -> STOP_MS }
                 val since = cand.optLong("since")
                 if (t - since >= need) {
                     close(c, cur, since)
@@ -216,7 +244,34 @@ object Tracker {
     }
 
     /** Driving is decided by the van's Bluetooth (connected = driving), not by GPS speed. */
-    fun btMode(c: Context) = Store.get(c, "autoBtDrive", "0") == "1" && Store.get(c, "autoStartAddr", "").isNotBlank()
+    fun btMode(c: Context): Boolean {
+        val a = Store.get(c, "autoStartAddr", "")
+        return Store.get(c, "autoBtDrive", "0") == "1" && a.isNotBlank() && !a.equals(Store.get(c, "obdAddr", ""), true) && !VanSession.enabled(c)
+    }
+
+    /** Van session: engine started / stopped. Stopped ends a drive at the moment you stopped moving. */
+    fun vanEngine(c: Context, on: Boolean, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+        val s = state(c); if (!s.optBoolean("running")) return@synchronized
+        s.put("engine", on).put("engineT", now)
+        val cur = s.optJSONObject("cur")
+        if (!on && cur != null && cur.optString("type") == "DRIVE") {
+            val end = maxOf(cur.optLong("start") + 60_000L, minOf(now, s.optLong("lastMove", now)))
+            DiagLog.w(c, "DRIVE", "van off → drive ends at the last movement (${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(end))})")
+            close(c, cur, end)
+            var type = "STOP"; var num = ""
+            s.optJSONObject("last")?.let { l ->
+                val lat = l.optDouble("lat"); val lng = l.optDouble("lng")
+                val radius = Store.get(c, "radius", DEFAULT_RADIUS).toDoubleOrNull() ?: 400.0
+                val st = Stores.nearest(c, lat, lng)?.takeIf { it.second <= radius }?.first
+                if (st != null) { type = "STORE"; num = st.num }
+                else if (home(c)?.let { Stores.meters(it.first, it.second, lat, lng) <= HOME_M } == true) type = "HOME"
+            }
+            if (type == "STORE") s.put("reached", true)
+            s.put("cur", JSONObject().put("type", type).put("store", num).put("start", end))
+            s.remove("cand"); s.put("boundary", now)
+        }
+        save(c, s)
+    }
 
     /** Van connected: a drive starts now. A reconnect within 90 s of a disconnect just continues the same drive. */
     fun btConnected(c: Context, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {

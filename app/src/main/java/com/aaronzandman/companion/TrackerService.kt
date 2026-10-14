@@ -80,6 +80,7 @@ class TrackerService : Service(), LocationListener {
         if (AutoDay.checkHome(this)) { lastText = ""; stopEverything(); return }   // arrived home: day over
         val st = Tracker.state(this)
         adjustPower(loc, st, now)
+        if (!parked && lm != null && wantRate() != rateMs) moving()   // started or stopped driving: change the GPS rate
         // Odometer: read at each possible arrival/departure, and every 2 minutes while driving.
         val boundary = st.optLong("boundary", 0)
         if (Tracker.commuteMark(this, now)) { lastOdoTry = 0L; readOdometer(now) }   // 30 minutes into the trip from home
@@ -88,12 +89,18 @@ class TrackerService : Service(), LocationListener {
         if (text != lastText) { lastText = text; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, text)) }
     }
 
-    /** Full GPS: every 10 seconds (needed to tell driving from stopping). */
+    /** GPS rate: every second while driving (accurate miles), every 5 seconds otherwise (to tell driving from stopping). */
+    private var rateMs = 0L
+    private fun wantRate(): Long = if (Tracker.state(this).optJSONObject("cur")?.optString("type") == "DRIVE") 1_000L else 5_000L
+
+    /** Full GPS. */
     private fun moving() {
         val m = lm ?: return
         try {
             m.removeUpdates(this)
-            m.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10_000L, 0f, this, Looper.getMainLooper())
+            rateMs = wantRate()
+            DiagLog.w(this, "GPS", "full GPS every ${rateMs / 1000}s")
+            m.requestLocationUpdates(LocationManager.GPS_PROVIDER, rateMs, 0f, this, Looper.getMainLooper())
             if (m.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) m.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 30_000L, 0f, this, Looper.getMainLooper())
         } catch (_: SecurityException) { stopEverything() }
         parked = false; parkedAt = null; away = 0

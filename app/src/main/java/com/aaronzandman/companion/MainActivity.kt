@@ -91,6 +91,26 @@ class MainActivity : Activity() {
         handleAuto(intent)
         StandbyService.start(this)
         VanWatch.start(this); VanLink.start(this)
+        migrateVan()
+    }
+
+    /**
+     * 1.15: "your van" must be the van's own radio, not the OBD adapter. If the adapter was picked there, switch to the
+     * van radio Companion has heard (e.g. "Ford Transit") and turn on holding the vLinker connection — what you asked for.
+     */
+    private fun migrateVan() {
+        if (Store.get(this, "mig115", "") == "1") return
+        Store.put(this, "mig115", "1")
+        val obd = Store.get(this, "obdAddr", "")
+        val acl = Store.get(this, "vanAclAddr", "")
+        if (obd.isBlank() || (acl.isNotBlank() && !acl.equals(obd, true))) return
+        val rec = try { JSONArray(Store.get(this, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() }
+        val van = (0 until rec.length()).mapNotNull { rec.optJSONObject(it) }
+            .firstOrNull { !it.optString("addr").equals(obd, true) && Regex("transit|ford|sync", RegexOption.IGNORE_CASE).containsMatchIn(it.optString("name")) }
+        if (van != null) {
+            Store.put(this, "vanAclAddr", van.optString("addr")); Store.put(this, "vanAclName", van.optString("name")); Store.put(this, "vanHold", "1")
+            DiagLog.w(this, "SET", "moved 'your van' from the adapter to ${van.optString("name")} ${van.optString("addr")}; holding the vLinker connection is on")
+        } else if (acl.isNotBlank()) { Store.put(this, "vanAclAddr", ""); Store.put(this, "vanAclName", "") }
     }
 
     /** Starts the day, or picks today's day back up if it ended automatically at home (e.g. lunch at home). */
@@ -192,6 +212,16 @@ class MainActivity : Activity() {
         if (requestCode == REQ_CSV) {
             val u = data?.data
             if (resultCode != RESULT_OK || u == null) { web.evaluateJavascript("onCsv(null)", null); return }
+            // A Google Timeline export (JSON, can be large): read it here as a stream, hand the page only the last 60 days.
+            val first = try { contentResolver.openInputStream(u)?.use { s -> var b: Int; do { b = s.read() } while (b == ' '.code || b == '\n'.code || b == '\r'.code || b == '\t'.code || b == 0xEF || b == 0xBB || b == 0xBF); b } ?: -1 } catch (_: Exception) { -1 }
+            if (first == '{'.code) {
+                Thread {
+                    val r = try { contentResolver.openInputStream(u)?.use { Timeline.read(this, it) } ?: JSONObject().put("err", "Couldn't open that file.") } catch (e: Exception) { JSONObject().put("err", "Couldn't read that file.") }
+                    DiagLog.w(this, "IMPORT", "Google Timeline file: ${r.optString("err").ifBlank { "${r.optJSONArray("entries")?.length() ?: 0} entries, ${r.optJSONArray("days")?.length() ?: 0} days" }}")
+                    runOnUiThread { web.evaluateJavascript("onTimeline(${JSONObject.quote(r.toString())})", null) }
+                }.start()
+                return
+            }
             val text = try { contentResolver.openInputStream(u)?.use { it.readBytes().take(600_000).toByteArray().toString(Charsets.UTF_8) } ?: "" } catch (_: Exception) { "" }
             web.evaluateJavascript("onCsv(${JSONObject.quote(text)})", null); return
         }
@@ -294,7 +324,9 @@ class MainActivity : Activity() {
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
                     .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
-                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("diagRec", DiagLog.on(c)).put("diagSince", Store.get(c, "diagSince", "0").toLongOrNull() ?: 0L).put("diagLines", DiagLog.lines(c)).put("exactAlarm", VanLink.exactOk(c)).put("vanVolts", Store.get(c, "vanVolts", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
+                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("vanHold", Store.get(c, "vanHold", "0") == "1").put("vanSession", VanSession.active()).put("engineOn", VanSession.engineOn)
+                    .put("odoDrift", try { JSONArray(Store.get(c, "odoDrift", "[]")) } catch (_: Exception) { JSONArray() })
+                    .put("diagRec", DiagLog.on(c)).put("diagSince", Store.get(c, "diagSince", "0").toLongOrNull() ?: 0L).put("diagLines", DiagLog.lines(c)).put("exactAlarm", VanLink.exactOk(c)).put("vanVolts", Store.get(c, "vanVolts", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
                     .put("recentAcl", try { JSONArray(Store.get(c, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() })
                     .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
@@ -525,7 +557,7 @@ class MainActivity : Activity() {
         /** Lets you pick a .csv log (from Companion's email, or one made for you) to bring into the log window. Calls onCsv(text). */
         @JavascriptInterface fun pickCsv() = runOnUiThread {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
-                .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/vnd.ms-excel", "application/octet-stream"))
+                .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/vnd.ms-excel", "application/json", "application/octet-stream"))
             try { @Suppress("DEPRECATION") startActivityForResult(i, REQ_CSV) } catch (_: Exception) { web.evaluateJavascript("onCsv(null)", null) }
         }
         /** Replaces one day's entries with imported ones ([day] = yyyy-MM-dd; entries [{type,store,start,end,m,tag}]). */
@@ -677,11 +709,13 @@ class MainActivity : Activity() {
                 try { val mi = JSONObject(value).getDouble("mi"); if (mi in 0.0..2_000_000.0) Store.put(this@MainActivity, key, JSONObject().put("mi", Math.round(mi)).put("t", System.currentTimeMillis()).toString()) } catch (_: Exception) {}
                 return
             }
+            if (key == "odoDrift") { Store.put(this@MainActivity, key, value.take(4000)); return }   // how far off the virtual odometer was at each weekly check
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast")) {
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast", "vanHold")) {
                 Store.put(this@MainActivity, key, value.take(80))
                 if (key == "vanWatch") { VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity) }
+                if (key == "vanHold" || key == "vanAclAddr") { DiagLog.w(this@MainActivity, "SET", "$key = $value"); if (key == "vanHold" && value != "1") VanSession.stop() }
                 if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }
             }
         }

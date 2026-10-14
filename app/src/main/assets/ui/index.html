@@ -263,6 +263,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <button class="btn sec" id="exactBtn" hidden>Allow “Alarms &amp; reminders” so the check runs every minute</button>
       <div class="set" style="display:block"><b>Also start when the van's own Bluetooth checks in</b><br><span class="hint">When the van starts, its radio (e.g. “Ford Transit”) links to the phone for a second. Start the van once with Companion open, then pick it here.</span>
         <select id="vanAcl" style="width:100%;margin-top:6px"></select></div>
+      <label class="set"><span><b>When the van checks in, connect to the vLinker and keep it connected</b><br><span class="hint">Engine running (13 V+) = van on: your day starts and drives are tracked closely. Engine off = drive ends; Companion lets go of the vLinker after 2 minutes so it can sleep. Nothing connects to the van itself.</span><br><span class="hint" id="vanHoldNow"></span></span><input type="checkbox" class="sw" id="vanHold"></label>
       <label class="set"><span><b>Show a toast when the day starts or ends</b><br><span class="hint">A short on-screen message, on top of the notification.</span></span><input type="checkbox" class="sw" id="dayToast"></label>
       <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Connected = driving, disconnected = stopped. GPS only places stops and measures miles.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
       <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day at home, then offers the email and MPG trips. Heading out again continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
@@ -345,6 +346,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="hint" id="diagStatus" style="font-weight:600;margin:6px 0"></div>
       <button class="btn" id="diagBtn">Start recording</button>
       <div class="row" style="gap:6px;margin-top:6px"><button class="btn sec" id="diagMark" style="flex:1;margin:0">Add a note</button><button class="btn sec" id="diagCopy" style="flex:1;margin:0">Copy log</button><button class="btn sec" id="diagClear" style="flex:1;margin:0">Clear</button></div>
+      <button class="btn sec" id="diagRecent" style="margin-top:6px">Copy just the last 30 minutes</button>
       <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Latest entries</summary><pre id="diagPrev" style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto;margin:6px 0;padding:8px;border-radius:8px;background:var(--bg2,rgba(127,127,127,.12))"></pre></details>
     </details>
     <details class="grp" id="grp-data"><summary>Your data</summary>
@@ -379,7 +381,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.14.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.15.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -478,6 +480,16 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="row"><button class="btn sec" id="frCopy">Copy</button><button class="btn" id="frClose">Close</button></div>
   </div>
 </div>
+<div id="odoDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="odoTitle" hidden>
+  <div class="box">
+    <h2 id="odoTitle">Check your odometer</h2>
+    <p class="hint" style="margin:0 0 8px">Companion has been counting miles by GPS for a week. Read the miles on the van's dashboard and type them in, so the count stays accurate.</p>
+    <label class="lbl" for="odoAskIn">Miles on the dashboard</label>
+    <input type="text" id="odoAskIn" inputmode="numeric" autocomplete="off" placeholder="Type the odometer reading" style="width:100%;box-sizing:border-box;font-size:20px">
+    <div class="hint" id="odoAskErr" style="color:#c62828;min-height:18px;margin-top:4px"></div>
+    <div class="row" style="gap:8px;margin-top:8px"><button class="btn sec" id="odoAskLater" style="flex:1;margin:0">Later</button><button class="btn" id="odoAskSave" style="flex:1;margin:0">Save</button></div>
+  </div>
+</div>
 <div id="logDlg" class="dlg full" role="dialog" aria-modal="true" aria-labelledby="logTitle" hidden>
   <div class="box">
     <div class="loghead"><h2 id="logTitle">Day log</h2><button class="btn sec" id="logClose" style="width:auto;margin:0">Close</button></div>
@@ -491,7 +503,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="hint" id="logNotes" style="margin:8px 0"></div>
     <div id="logList"></div>
     <button class="btn sec" id="logAdd">+ Add an entry</button>
-    <button class="btn sec" id="logCsv">Import log (CSV)</button>
+    <button class="btn sec" id="logCsv">Import log (CSV or Google Timeline)</button>
     <div class="hint" style="margin-top:4px">Missed a store visit? Add it here (At a store, with its times); a drive that covers that time is split around it.</div>
     <div class="hint" style="margin-top:6px">Edits change this phone's log and everything made from it (totals, email, MPG trips). Entries you changed are marked ✎.</div>
   </div>
@@ -609,12 +621,12 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd();
+  renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd(); maybeAskOdo();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
   const est=odoEstimate(Date.now()), age=odoAge(), recentAdapter=(S.odo||[]).some(o=>Date.now()-o.t<7*864e5);
-  $("odoNow").textContent = est ? `About ${Math.round(est.v).toLocaleString()} now`+(st.odoBase?` · you entered ${st.odoBase.mi.toLocaleString()} on ${new Date(st.odoBase.t).toLocaleDateString()}`:"")+(recentAdapter?" · adapter connected":"") : "No odometer reading yet. Enter it below.";
+  $("odoNow").textContent = est ? `About ${Math.round(est.v).toLocaleString()} now`+(st.odoBase?` · you entered ${st.odoBase.mi.toLocaleString()} on ${new Date(st.odoBase.t).toLocaleDateString()}`:"")+(recentAdapter?" · adapter connected":"")+(()=>{ const d=(st.odoDrift||[]).slice(-1)[0]; return d?` · last check: count was ${Math.abs(d.pct)}% ${d.pct<0?"low":"high"}`:""; })() : "No odometer reading yet. Enter it below.";
   const stale=!recentAdapter&&(age===null||age>7);
   $("odoWarn").hidden=!stale; $("odoWarn").innerHTML = stale ? (age===null?"<b>Enter your odometer</b> in Settings so MPG trips can be checked.":`<b>Update your odometer.</b> It was last entered ${Math.floor(age)} days ago.`)+` <a href="#" onclick="showTab('settings');openGroupFor($('odoIn'));$('odoIn').focus();return false">Open Settings</a>` : "";
   const fd=st.ford||{};
@@ -869,6 +881,28 @@ function odoEstimate(t){
   if(before) return {v:before.mi+gpsMilesBetween(before.t,t),src:"estimate"};
   return {v:after.mi-gpsMilesBetween(t,after.t),src:"estimate"};
 }
+// ---- Weekly odometer check: only when no adapter/Ford reading came in for 7 days. Empty field on purpose.
+function lastVerified(){ const st=S.settings||{}; const vs=[...(S.odo||[]).map(o=>o.mi),...(st.odoBase?[st.odoBase.mi]:[])]; return vs.length?Math.max(...vs):null; }
+function odoAskDue(){
+  if(!(S.tracker&&S.tracker.running)) return false;
+  const cur=(S.tracker||{}).cur; if(cur&&cur.type==="DRIVE") return false;            // never while driving
+  if((S.odo||[]).some(o=>Date.now()-o.t<7*864e5)) return false;                       // the adapter or Ford gave a real reading this week
+  const b=(S.settings||{}).odoBase; if(b&&Date.now()-b.t<7*864e5) return false;
+  try{ if(localStorage.getItem("odoAsk")===dayKey(Date.now())) return false; }catch(e){}
+  return true; }
+function maybeAskOdo(){ if(!$("odoDlg").hidden||!odoAskDue()) return; $("odoAskIn").value=""; $("odoAskErr").textContent=""; $("odoDlg").hidden=false; track("odo-ask"); }
+function odoAskDone(){ try{ localStorage.setItem("odoAsk",dayKey(Date.now())); }catch(e){} $("odoDlg").hidden=true; }
+$("odoAskLater").onclick=()=>{ odoAskDone(); toast("OK — Companion will ask again next time you start your day."); };
+$("odoAskSave").onclick=()=>{
+  const raw=$("odoAskIn").value.replace(/[,\s]/g,""); const v=/^\d{1,7}$/.test(raw)?+raw:NaN;
+  if(!v){ $("odoAskErr").textContent="Type the whole miles shown on the dashboard."; return; }
+  const lv=lastVerified(); if(lv!==null&&v<Math.floor(lv)){ $("odoAskErr").textContent=`That's lower than the last reading (${Math.round(lv).toLocaleString()}). Check the number.`; return; }
+  const est=odoEstimate(Date.now());
+  if(est&&Math.abs(v-est.v)/est.v>0.05&&!confirm(`${v.toLocaleString()} is more than 5% away from Companion's count (about ${Math.round(est.v).toLocaleString()}). Is ${v.toLocaleString()} what the dashboard shows?`)) return;
+  if(est){ const d=((S.settings||{}).odoDrift||[]).slice(-19); d.push({t:Date.now(),mi:v,est:Math.round(est.v),pct:Math.round((est.v-v)/v*1000)/10}); A.setSetting("odoDrift",JSON.stringify(d)); }
+  A.setSetting("odoBase",JSON.stringify({mi:v})); odoAskDone(); track("odo-verified");
+  const p=est?Math.round((est.v-v)/v*1000)/10:null;
+  toast(p===null?"Odometer saved.":`Odometer saved. Companion's count was ${Math.abs(p)}% ${p<0?"low":"high"}.`); refresh(); };
 function odoAge(){ // days since the newest odometer reading (entered or from the adapter)
   const ts=[...(S.odo||[]).map(o=>o.t),...((S.settings||{}).odoBase?[S.settings.odoBase.t]:[])];
   return ts.length?(Date.now()-Math.max(...ts))/864e5:null;
@@ -1024,9 +1058,32 @@ function parseLogCsv(text){
   const days=[...new Set(out.map(g=>dayKey(g.start)))];
   return {entries:out, days, bad};
 }
-$("logCsv").onclick=()=>{ $("logCsv").disabled=true; $("logCsv").textContent="Choose the .csv file…"; A.pickCsv(); };
+$("logCsv").onclick=()=>{ $("logCsv").disabled=true; $("logCsv").textContent="Choose the .csv or Timeline.json file…"; A.pickCsv(); };
+// Google Timeline (Settings → Location → Timeline → Export Timeline data): the phone sends the last 60 days; pick the day(s).
+function parseDayRange(v){
+  const y=new Date().getFullYear(), one=x=>{ const m=/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(x.trim()); if(!m) return null; const yy=m[3]?(+m[3]<100?2000+ +m[3]:+m[3]):y; return new Date(yy,+m[1]-1,+m[2]).getTime(); };
+  const parts=v.split(/\s*(?:-|–|to)\s*/i); const a=one(parts[0]||""), b=parts[1]?one(parts[1]):a; if(!a||!b||b<a) return null;
+  const out=[]; for(let t=a;t<=b;t+=864e5) out.push(dayKey(t+3600e3)); return out; }
+window.onTimeline=json=>{
+  $("logCsv").disabled=false; $("logCsv").textContent="Import log (CSV or Google Timeline)";
+  let r; try{ r=JSON.parse(json); }catch(e){ toast("Couldn't read that file."); return; }
+  if(r.err){ alert(r.err); return; }
+  const avail=r.days||[]; if(!avail.length){ alert("No days found in that file."); return; }
+  const fmtD=k=>{ const d=new Date(k+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); };
+  const v=prompt(`Google Timeline has ${avail.length} day(s), ${fmtD(avail[0])} to ${fmtD(avail[avail.length-1])}.\nWhich day(s) to import? A date like ${fmtD(avail[avail.length-1])} or a range like ${fmtD(avail[Math.max(0,avail.length-3)])}-${fmtD(avail[avail.length-1])}:`, fmtD(avail[avail.length-1]));
+  if(v===null) return; const want=parseDayRange(v); if(!want){ alert("Type a date like 10/13 or a range like 10/11-10/13."); return; }
+  let total=0;
+  for(const day of want){
+    const es=(r.entries||[]).filter(g=>dayKey(g.start)===day); if(!es.length){ toast(`Nothing on ${fmtD(day)} in Timeline.`); continue; }
+    const mi=es.reduce((n,g)=>n+(g.m||0),0)/1609.344, st=es.filter(g=>g.type==="STORE").map(g=>g.store);
+    const running=!!(S.tracker&&S.tracker.running)&&dayKey((S.tracker||{}).dayStart||0)===day;
+    if(!confirm(`Replace the log for ${dayName(new Date(day+"T12:00:00"))} with ${es.length} entries from Google Timeline (${mi.toFixed(1)} mi of driving${st.length?`, stores ${[...new Set(st)].join(", ")}`:""})?`+(running?" This also ends today's timer.":""))) continue;
+    const n=A.importDay(day,JSON.stringify(es)); if(n>0){ total+=n; LOG_DAY=day; }
+  }
+  if(total){ track("timeline-import"); LOG_EDIT=null; refresh(); renderLog(); toast(`Imported ${total} entries from Google Timeline. Check the log, then Log trips in MPG.`); }
+};
 window.onCsv=text=>{
-  $("logCsv").disabled=false; $("logCsv").textContent="Import log (CSV)";
+  $("logCsv").disabled=false; $("logCsv").textContent="Import log (CSV or Google Timeline)";
   if(text===null) return; if(!text){ toast("Couldn't read that file."); return; }
   const r=parseLogCsv(text); if(r.err){ alert(r.err); return; }
   let total=0;
@@ -1062,10 +1119,14 @@ function renderAuto(){
   $("autoStartHint").textContent=h.trim();
   $("autoBgBtn").hidden=!(st.autoStartBt&&!p.bgLoc);
   $("autoBtDrive").checked=!!st.autoBtDrive; $("autoBtDrive").disabled=!cur&&!st.autoBtDrive;
-  { const va=$("vanAcl"); if(document.activeElement!==va){ const cur=st.vanAclAddr||"", rec=(st.recentAcl||[]).slice();
+  { const va=$("vanAcl"); if(document.activeElement!==va){ const obdA=((S.obd||{}).addr||"").toUpperCase(), leA=(st.vanAddr||"").toUpperCase(), isAdapter=a=>!!a&&(a.toUpperCase()===obdA||a.toUpperCase()===leA);
+      const cur=isAdapter(st.vanAclAddr)?"":(st.vanAclAddr||""), rec=(st.recentAcl||[]).filter(r=>!isAdapter(r.addr));
       if(cur && !rec.some(r=>r.addr===cur)) rec.unshift({addr:cur,name:st.vanAclName||cur,t:0});
       rec.sort((a,b)=>(/transit|ford|sync|van/i.test(b.name)?1:0)-(/transit|ford|sync|van/i.test(a.name)?1:0));
       va.innerHTML=`<option value="">${rec.length?"Off — pick the van's Bluetooth…":"Off — start the van, then reopen this"}</option>`+rec.map(r=>`<option value="${esc(r.addr)}"${r.addr===cur?" selected":""}>${esc(r.name||r.addr)}${r.t?` · seen ${when(r.t)}`:""}</option>`).join(""); } }
+  $("vanHold").checked=!!st.vanHold; $("vanHold").disabled=!st.vanAclAddr&&!st.vanHold;
+  $("vanHoldNow").textContent = !st.vanHold ? "" : !st.vanAclAddr ? "Pick your van's Bluetooth above first." : !(S.obd||{}).addr ? "Choose the adapter in Van settings first." :
+    st.vanSession ? `● vLinker connected · ${st.engineOn?"engine running":"engine off"}${st.vanVolts?` · ${st.vanVolts} V`:""}` : "Waiting for the van to check in.";
   $("vanWatch").checked=!!st.vanWatch; renderDiag(); $("exactBtn").hidden=!(st.vanWatch&&st.exactAlarm===false); $("vanLog").textContent=(st.vanLog||"Nothing yet.").split("\n").reverse().join("\n"); $("dayToast").checked=st.dayToast!==false;
   if(!VAN_FINDING) $("vanHint").textContent = st.vanErr ? `Couldn't start watching (${st.vanErr}). Check that Bluetooth is on.` : st.vanAddr ? `Watching for ${st.vanName||st.vanAddr}`+(st.vanSeen?` · last seen ${when(st.vanSeen)}`:"")+(st.vanVolts?` · ${st.vanVolts} V`:"") : "Turn the van on, then tap Find my vLinker.";
   $("autoBoot").checked=st.autoBoot!==false; $("standby").checked=st.standby!==false;
@@ -1078,6 +1139,7 @@ $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 let VAN_FINDING=false;
+$("vanHold").onchange=e=>{ A.setSetting("vanHold",e.target.checked?"1":"0"); track(e.target.checked?"van-hold-on":"van-hold-off"); if(e.target.checked) toast("Companion will connect to the vLinker when your van checks in."); refresh(); };
 function renderDiag(){ const st=S.settings||{}, on=!!st.diagRec;
   $("diagStatus").textContent = on ? `● Recording since ${when(st.diagSince)} · ${st.diagLines||0} entries` : (st.diagLines ? `Not recording · ${st.diagLines} entries saved` : "Not recording");
   $("diagStatus").style.color = on ? "#c62828" : "";
@@ -1085,7 +1147,21 @@ function renderDiag(){ const st=S.settings||{}, on=!!st.diagRec;
   if($("diagPrev").closest("details").open){ try{ $("diagPrev").textContent=(A.diagText()||"").trim().split("\n").slice(-60).reverse().join("\n")||"Nothing yet."; }catch(e){} }
 }
 $("diagBtn").onclick=()=>{ const on=!(S.settings||{}).diagRec; A.diagRec(on); track(on?"diag-on":"diag-off"); toast(on?"Recording. Use Companion as usual, then come back and tap Copy log.":"Recording stopped."); refresh(); };
-$("diagCopy").onclick=()=>{ const t=A.diagText()||""; if(!t){ toast("Nothing recorded yet"); return; } A.copy(t); toast(`Log copied (${t.trim().split("\n").length} lines). Paste it into the chat.`); };
+// Long logs get cut off when pasted, so they're copied in parts of about 18,000 characters: tap Copy log once per part.
+const DIAG_PART=18000; let DIAG_PARTS=null, DIAG_I=0;
+function diagSplit(t){ const out=[]; let cur=""; t.split("\n").forEach(l=>{ if(cur.length+l.length+1>DIAG_PART&&cur){ out.push(cur); cur=""; } cur+=l+"\n"; }); if(cur.trim()) out.push(cur); return out; }
+function diagCopyBtn(){ $("diagCopy").textContent = DIAG_PARTS&&DIAG_I<DIAG_PARTS.length ? `Copy part ${DIAG_I+1} of ${DIAG_PARTS.length}` : "Copy log"; }
+$("diagCopy").onclick=()=>{ const t=(A.diagText()||"").trim(); if(!t){ toast("Nothing recorded yet"); return; }
+  if(t.length<=DIAG_PART){ A.copy(t); DIAG_PARTS=null; diagCopyBtn(); toast(`Log copied (${t.split("\n").length} lines). Paste it into the chat.`); return; }
+  if(!DIAG_PARTS||DIAG_I>=DIAG_PARTS.length){ DIAG_PARTS=diagSplit(t); DIAG_I=0; }
+  const n=DIAG_PARTS.length, i=DIAG_I; A.copy(`[Companion log part ${i+1} of ${n}]\n`+DIAG_PARTS[i]); DIAG_I++;
+  toast(i+1<n ? `Part ${i+1} of ${n} copied. Paste it, then tap “Copy part ${i+2}”.` : `Last part (${n} of ${n}) copied.`);
+  if(DIAG_I>=n) DIAG_PARTS=null; diagCopyBtn(); };
+$("diagRecent").onclick=()=>{ const y=new Date().getFullYear(), cut=Date.now()-30*60e3;
+  const ls=(A.diagText()||"").trim().split("\n").filter(l=>{ const m=/^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)/.exec(l); return m&&new Date(y,+m[1]-1,+m[2],+m[3],+m[4],+m[5]).getTime()>=cut; });
+  if(!ls.length){ toast("Nothing recorded in the last 30 minutes"); return; }
+  let t=ls.join("\n"); if(t.length>DIAG_PART) t="(older lines cut)\n"+t.slice(-DIAG_PART);
+  A.copy(t); toast(`Last 30 minutes copied (${ls.length} lines).`); };
 $("diagClear").onclick=()=>{ if(confirm("Clear the recorded log?")){ A.diagClear(); refresh(); } };
 $("diagMark").onclick=()=>{ const n=prompt("Note to add to the log (e.g. “just started the van”):"); if(n){ A.diagMark(n); toast("Note added"); refresh(); } };
 document.querySelector("#diagPrev").closest("details").addEventListener("toggle",()=>renderDiag());

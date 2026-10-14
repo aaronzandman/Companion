@@ -33,7 +33,7 @@ object VanLink {
     private const val POLL_MS = 60_000L
     const val RUNNING_V = 13.0
 
-    private fun wanted(c: Context) = VanWatch.on(c) && !Tracker.isRunning(c)
+    private fun wanted(c: Context) = VanWatch.on(c) && !Tracker.isRunning(c) && !VanSession.enabled(c)   // the van session holds the vLinker instead
     private fun adapter(c: Context) = c.getSystemService(BluetoothManager::class.java)?.adapter
 
     /** Start (or restart) both: the standing LE connection request and the minute check. */

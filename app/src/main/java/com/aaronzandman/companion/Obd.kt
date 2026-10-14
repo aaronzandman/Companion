@@ -27,7 +27,8 @@ object Obd {
         "0000fff1-0000-1000-8000-00805f9b34fb", "0000fff2-0000-1000-8000-00805f9b34fb",
         "0000ffe1-0000-1000-8000-00805f9b34fb"
     )
-    private val lock = Any()
+    /** One conversation with the adapter at a time (odometer reads and the van session's voltage checks). */
+    val lock = Any()
 
     interface Link { fun send(cmd: String, timeoutMs: Long = 4000): String; fun close() }
 
@@ -40,6 +41,22 @@ object Obd {
             BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
             sock.connect(); inp = sock.inputStream; out = sock.outputStream
         }
+        override fun send(cmd: String, timeoutMs: Long): String {
+            while (inp.available() > 0) inp.read()
+            out.write((cmd + "\r").toByteArray()); out.flush()
+            val sb = StringBuilder(); val end = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < end) {
+                if (inp.available() > 0) { val ch = inp.read().toChar(); if (ch == '>') break; sb.append(ch) }
+                else Thread.sleep(15)
+            }
+            return sb.toString()
+        }
+        override fun close() { try { sock.close() } catch (_: Exception) {} }
+    }
+
+    /** A connection someone else opened and keeps (the van session); closing it is theirs to do. */
+    class SockLink(private val sock: android.bluetooth.BluetoothSocket) : Link {
+        private val inp = sock.inputStream; private val out = sock.outputStream
         override fun send(cmd: String, timeoutMs: Long): String {
             while (inp.available() > 0) inp.read()
             out.write((cmd + "\r").toByteArray()); out.flush()
@@ -133,8 +150,10 @@ object Obd {
     fun readMiles(ctx: Context, log: StringBuilder? = null): Double? {
       synchronized(lock) {
         var link: Link? = null
+        val shared = VanSession.link()   // the van session already holds the adapter: read through it
         try {
-            link = open(ctx)
+            link = shared ?: open(ctx)
+            log?.append(if (shared != null) "(using the held van connection)\n" else "")
             for (c in listOf("ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0")) {
                 val r = link.send(c, if (c == "ATZ") 3000 else 2000); log?.append("$c → ${r.trim().replace("\r", " ")}\n")
                 if (c == "ATZ") Thread.sleep(300)
@@ -152,7 +171,7 @@ object Obd {
             }
             return null
         } catch (e: Exception) { log?.append("Error: ${e.message}\n"); return null }
-        finally { link?.close() }
+        finally { if (shared == null) link?.close() }
       }
     }
 
