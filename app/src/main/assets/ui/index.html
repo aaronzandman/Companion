@@ -216,6 +216,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Day</b></span><select id="mpgDay"></select></label>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
+      <button class="btn sec" id="mpgAgain" hidden>Log this day again</button>
       <div class="hint" id="mpgNote" style="margin-top:6px"></div>
     </div>
   </section>
@@ -870,9 +871,13 @@ function renderMpg(){
     : `<div class="empty">No drives recorded that day.</div>`;
   const left=trips.filter(t=>!done[t.key]).length;
   $("mpgBtn").disabled=!left||live; $("mpgBtn").textContent=left?`Log ${left} trip${left>1?"s":""} in MPG`:"All trips logged";
+  $("mpgAgain").hidden=live||!trips.some(t=>done[t.key]);
   $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : "MPG fills in the date and starting odometer. Companion fills in the description, ending odometer and Personal." + (trips.some(t=>!t.adapter)?" Without the adapter, ending odometer = MPG's start + the miles Companion measured (≈ numbers here are estimates).":"");
 }
 $("mpgDay").onchange=renderMpg;
+$("mpgAgain").onclick=()=>{ const k=$("mpgDay").value;
+  if(!confirm(`Log ${dayName(new Date(k+"T12:00:00"))} in MPG again?\n\nOnly do this if you've deleted that day's trips in MPG, or they'll be there twice.`)) return;
+  A.mpgReset(k); track("mpg-again"); refresh(); toast("Ready: tap Log trips in MPG."); };
 $("odoSave").onclick=()=>{ const v=parseInt(($("odoIn").value||"").replace(/[^0-9]/g,""),10);
   if(!(v>0&&v<2000000)){ toast("Enter the odometer reading in miles, for example 123456."); return; }
   const est=odoEstimate(Date.now()); if(est&&Math.abs(est.v-v)>500&&!confirm(`That's ${Math.round(Math.abs(est.v-v)).toLocaleString()} miles from Companion's estimate (${Math.round(est.v).toLocaleString()}). Save ${v.toLocaleString()} anyway?`)) return;

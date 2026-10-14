@@ -274,6 +274,13 @@ object Tracker {
         cur.put("edited", now); s.remove("cand"); save(c, s); true
     }
 
+    /** Forgets the MPG "logged" marks for one day (keys look like "yyyy-MM-dd@start"). */
+    fun mpgReset(c: Context, day: String) {
+        val o = try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() }
+        o.keys().asSequence().toList().forEach { if (it.startsWith("$day@")) o.remove(it) }
+        Store.put(c, "mpgDone", o.toString())
+    }
+
     /** Replaces a day's entries with imported ones. If that day is still running, the timer is ended first. Returns how many were saved. */
     fun importDay(c: Context, day: String, list: JSONArray): Int = synchronized(lock) {
         val f = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -289,7 +296,9 @@ object Tracker {
                 .put("start", st).put("end", en).put("m", Math.round(j.optDouble("m", 0.0))).put("imported", true)
             if (type == "STOP" && j.optString("tag") == "FUEL") g.put("tag", "FUEL")
             keep.put(g); n++ }
-        Store.saveSegments(c, sorted(keep)); n
+        Store.saveSegments(c, sorted(keep))
+        if (n > 0) mpgReset(c, day)   // new trips for that day: none of them is logged in MPG yet
+        n
     }
 
     /** Adds an entry you missed (for example a stop before you started the timer). */

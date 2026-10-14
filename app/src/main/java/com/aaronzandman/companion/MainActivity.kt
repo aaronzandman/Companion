@@ -447,6 +447,9 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun editSegment(start: String, json: String): Boolean =
             try { Tracker.editSegment(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
+        /** Forgets which of a day's trips were logged in MPG (after you deleted them there), so they can be logged again. */
+        @JavascriptInterface fun mpgReset(day: String) { Tracker.mpgReset(this@MainActivity, day) }
+
         /** Lets you pick a .csv log (from Companion's email, or one made for you) to bring into the log window. Calls onCsv(text). */
         @JavascriptInterface fun pickCsv() = runOnUiThread {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
