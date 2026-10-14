@@ -47,7 +47,7 @@ class MpgActivity : Activity() {
         banner = TextView(this).apply { setTextColor(Color.WHITE); textSize = 14f }
         top.addView(banner)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END; setPadding(0, dp(6), 0, 0) }
-        row.addView(btn("Fill again") { fill() })
+        row.addView(btn("Fill again") { fillNow() })
         row.addView(btn("Skip trip") { confirm("Skip this trip without logging it?") { next(false) } })
         row.addView(btn("Close") { finish() })
         top.addView(row)
@@ -100,7 +100,7 @@ class MpgActivity : Activity() {
             return
         }
         if (path.contains("/mileageentry/editjournalentry/-1")) {
-            if (filledUrl != url || !awaitingSave) fill()
+            if (filledUrl != url || !awaitingSave) fill()   // waits for MPG to finish setting up the form first
         } else if (path.trimEnd('/') == "/mpg") {
             if (awaitingSave) next(true)          // MPG went back to its main page after Save
             else web.loadUrl(NEW_TRIP)
@@ -130,8 +130,42 @@ class MpgActivity : Activity() {
         Store.put(this, "mpgDone", o.toString())
     }
 
-    /** Fills the Create New Trip form for the current trip. Never presses Save. */
+    private var waitToken = 0
+
+    /**
+     * MPG finishes setting up its form a moment after the page loads (it puts in the date and the starting odometer).
+     * Filling before that gets overwritten, so wait until the form is there, has MPG's starting odometer and date,
+     * and hasn't changed for about a second (or 10 seconds have passed), then fill.
+     */
     private fun fill() {
+        if (idx >= trips.length()) return
+        val token = ++waitToken; val started = System.currentTimeMillis(); var last = ""; var same = 0
+        show("${head()}\nWaiting for MPG to finish loading the form…")
+        val probe = "(function(){var s=document.getElementById('startOdo'),e=document.getElementById('endOdo'),p=document.getElementById('purposeDesc'),d=document.getElementById('entryDate');" +
+            "if(!s||!e||!p) return 'none'; return [s.value,d?d.value:'',document.readyState,(window.jQuery&&jQuery.active)||0].join('|');})()"
+        fun poll() {
+            if (token != waitToken || idx >= trips.length()) return
+            web.evaluateJavascript(probe) { raw ->
+                val v = try { JSONArray("[$raw]").getString(0) } catch (_: Exception) { "" }
+                val parts = v.split("|")
+                val ready = v != "none" && parts.size >= 4 && parts[0].trim().toIntOrNull() != null && parts[1].isNotBlank() && parts[2] == "complete" && parts[3] == "0"
+                if (ready && v == last) same++ else same = 0
+                last = v
+                val waited = System.currentTimeMillis() - started
+                when {
+                    ready && same >= 2 -> fillNow()                       // steady for ~1 s
+                    waited > 10_000L && v != "none" -> fillNow()           // fill anyway; the checks at Save still apply
+                    waited > 20_000L -> show("${head()}\nMPG's form didn't load. Tap Fill again when it's showing.")
+                    else -> web.postDelayed({ poll() }, 500)
+                }
+            }
+        }
+        web.postDelayed({ poll() }, 300)
+    }
+
+    /** Fills the Create New Trip form for the current trip. Never presses Save. */
+    private fun fillNow() {
+        waitToken++
         if (idx >= trips.length()) return
         val t = trip()
         val js = """
@@ -189,6 +223,8 @@ class MpgActivity : Activity() {
     var got=perText();
     if(per && got && got!==want && !window.confirm('Companion has this trip as Personal: '+(t.personal?'Yes':'No')+', but the form says '+(got==='yes'?'Yes':'No')+'.\n\nOK = save it as it is now.\nCancel = go back and check.')){ ev.preventDefault(); ev.stopImmediatePropagation(); }
   }, true); }
+  if(t.endOdo==null && s && !s.__cpw){ s.__cpw=1; var lastS=s.value;
+    setInterval(function(){ if(s.value!==lastS){ lastS=s.value; var ns=parseInt(s.value,10); if(!isNaN(ns)&&document.activeElement!==e) set(e, ns+(t.miles||0)); } }, 700); }
   window.scrollTo(0,0);
   return JSON.stringify({ok:true, start:start, end:end, mpgStart:mpgStart, dateSet:dateSet, dateOk:d.today||!dt||sameDay(dt.value), hidden:(typeof hid!=='undefined'?hid.length:0), dateBefore:dateBefore, dateAfter:dt?dt.value:'',
     jq:!!window.jQuery, picker:!!(window.jQuery&&jQuery.fn&&jQuery.fn.datepicker)});
