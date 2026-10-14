@@ -294,7 +294,7 @@ class MainActivity : Activity() {
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
                     .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
-                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
+                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
                     .put("recentAcl", try { JSONArray(Store.get(c, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() })
                     .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))

@@ -2,6 +2,7 @@ package com.aaronzandman.companion
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanFilter
@@ -11,6 +12,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.ParcelUuid
 
 /**
  * The phone never connects to an OBD adapter by itself, so Companion watches for the vLinker instead:
@@ -55,12 +57,18 @@ object VanWatch {
     @SuppressLint("MissingPermission")
     fun start(c: Context) {
         stop(c)
-        if (!on(c)) return
-        val aa = addrs(c); val nn = names(c); if (aa.isEmpty() && nn.isEmpty()) return
-        val sc = scanner(c) ?: return
+        if (!on(c)) { log(c, "watch off (switch is off)"); return }
+        val aa = addrs(c); val nn = names(c)
+        val sc = scanner(c) ?: run { log(c, "can't watch: Bluetooth is off"); Store.put(c, "vanWatchErr", "Bluetooth is off"); return }
         val filters = mutableListOf<ScanFilter>()
-        for (a in aa) try { filters.add(ScanFilter.Builder().setDeviceAddress(a).build()) } catch (_: Exception) {}
+        for (a in aa) {
+            try { filters.add(ScanFilter.Builder().setDeviceAddress(a).build()) } catch (_: Exception) {}
+            // The vLinker's LE address (DD:…) is a "random" one; Android's plain address filter only matches "public" ones.
+            if (Build.VERSION.SDK_INT >= 33) try { filters.add(ScanFilter.Builder().setDeviceAddress(a, BluetoothDevice.ADDRESS_TYPE_RANDOM).build()) } catch (_: Exception) {}
+        }
         for (n in nn) filters.add(ScanFilter.Builder().setDeviceName(n).build())
+        // vLinker FD-IOS advertises the OBD service 18F0; matches are checked in [accept] so other adapters are ignored.
+        filters.add(ScanFilter.Builder().setServiceUuid(SVC).build())
         val ad = c.getSystemService(BluetoothManager::class.java)?.adapter
         val lostOk = ad?.isOffloadedFilteringSupported == true
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).apply {
@@ -68,7 +76,28 @@ object VanWatch {
                 .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE).setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
         }.build()
         Store.put(c, "vanLostOk", if (lostOk) "1" else "0")
-        try { val r = sc.startScan(filters, settings, pi(c)); Store.put(c, "vanWatchErr", if (r == 0) "" else "scan error $r") } catch (e: Exception) { Store.put(c, "vanWatchErr", e.javaClass.simpleName) }
+        try {
+            val r = sc.startScan(filters, settings, pi(c))
+            Store.put(c, "vanWatchErr", if (r == 0) "" else "scan error $r")
+            log(c, if (r == 0) "watching for ${(nn + aa).joinToString(", ")} + service 18F0" + (if (lostOk) "" else " (this phone can't report 'gone')") else "watch FAILED to start: error $r")
+        } catch (e: Exception) { Store.put(c, "vanWatchErr", e.javaClass.simpleName); log(c, "watch FAILED to start: $e") }
+    }
+
+    private val SVC = ParcelUuid.fromString("000018F0-0000-1000-8000-00805F9B34FB")
+
+    /** Is this scan result our vLinker (and not some other adapter that also uses service 18F0)? */
+    fun accept(c: Context, r: ScanResult): Boolean {
+        val n = (try { r.device.name } catch (_: SecurityException) { null } ?: r.scanRecord?.deviceName ?: "")
+        val a = r.device.address ?: ""
+        return addrs(c).any { it.equals(a, true) } || names(c).any { it.equals(n, true) } || VL.containsMatchIn(n) ||
+            (n.isBlank() && addrs(c).isEmpty() && names(c).isEmpty())
+    }
+
+    /** A short history of what the watch saw and did (Settings → Van watch log). */
+    @Synchronized fun log(c: Context, msg: String) {
+        val t = java.text.SimpleDateFormat("M/d h:mm:ss a", java.util.Locale.US).format(java.util.Date())
+        val old = Store.get(c, "vanLog", "").lines().filter { it.isNotBlank() }.takeLast(59)
+        Store.put(c, "vanLog", (old + "$t  $msg").joinToString("\n"))
     }
 
     @SuppressLint("MissingPermission")
@@ -90,8 +119,9 @@ object VanWatch {
     fun vanOn(c: Context, via: String = "") {
         val now = System.currentTimeMillis(); val last = Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L
         Store.put(c, "vanSeen", now.toString())
-        if (now - last < 3 * 60_000L && Store.get(c, "vanPresent", "0") == "1") return
+        if (now - last < 3 * 60_000L && Store.get(c, "vanPresent", "0") == "1") { log(c, "van still on (seen ${(now - last) / 1000}s ago), nothing to do"); return }
         Store.put(c, "vanPresent", "1")
+        log(c, "VAN ON via ${via.ifBlank { "vLinker" }}")
         AutoDay.onConnected(c, "", via.ifBlank { name(c).ifBlank { "vLinker" } }, force = true)
         if (Tracker.isRunning(c)) TrackerService.ping(c)   // read the odometer through the adapter now
     }
@@ -99,16 +129,30 @@ object VanWatch {
     /** Adapter stopped advertising (van off; only on phones that can report it). */
     fun vanOff(c: Context) {
         Store.put(c, "vanPresent", "0")
+        log(c, "VAN OFF (vLinker gone)")
         AutoDay.onDisconnected(c, "", force = true)
     }
 }
 
 /** Android calls this with the background scan's results. */
 class VanScanReceiver : BroadcastReceiver() {
+    @SuppressLint("MissingPermission")
     override fun onReceive(c: Context, i: Intent) {
-        if (i.getIntExtra(BluetoothLeScanner.EXTRA_ERROR_CODE, 0) != 0) return
+        val err = i.getIntExtra(BluetoothLeScanner.EXTRA_ERROR_CODE, 0)
+        if (err != 0) { VanWatch.log(c, "Android reported scan error $err"); return }
         val type = i.getIntExtra(BluetoothLeScanner.EXTRA_CALLBACK_TYPE, ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+        @Suppress("DEPRECATION")
+        val list: List<ScanResult> = (if (Build.VERSION.SDK_INT >= 33) i.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java)
+            else i.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT)) ?: emptyList()
         val pr = goAsync()
-        Thread { try { if (type == ScanSettings.CALLBACK_TYPE_MATCH_LOST) VanWatch.vanOff(c) else VanWatch.vanOn(c) } catch (_: Exception) {} finally { pr.finish() } }.start()
+        Thread {
+            try {
+                val lost = type == ScanSettings.CALLBACK_TYPE_MATCH_LOST
+                val ours = list.filter { VanWatch.accept(c, it) }
+                val who = list.joinToString("; ") { r -> "${(try { r.device.name } catch (_: Exception) { null }) ?: r.scanRecord?.deviceName ?: "?"} ${r.device.address} ${r.rssi}dBm" }
+                VanWatch.log(c, "Android: ${if (lost) "GONE" else "SEEN"} $who" + if (list.isNotEmpty() && ours.isEmpty()) " (not our vLinker, ignored)" else "")
+                if (list.isEmpty() || ours.isNotEmpty()) { if (lost) VanWatch.vanOff(c) else VanWatch.vanOn(c) }
+            } catch (e: Exception) { VanWatch.log(c, "error: $e") } finally { pr.finish() }
+        }.start()
     }
 }

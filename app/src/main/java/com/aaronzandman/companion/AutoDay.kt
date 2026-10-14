@@ -27,13 +27,15 @@ object AutoDay {
     fun onConnected(c: Context, addr: String, name: String, force: Boolean = false) {
         if (!force && !addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
         val drive = Tracker.btMode(c) || (force && Store.get(c, "autoBtDrive", "0") == "1")
-        if (Tracker.isRunning(c)) { if (drive && Tracker.btConnected(c)) TrackerService.ping(c); return }
+        fun why(m: String) { if (force) VanWatch.log(c, m) }
+        if (Tracker.isRunning(c)) { why("day already running" + if (drive) " → driving" else ""); if (drive && Tracker.btConnected(c)) TrackerService.ping(c); return }
         if (!force && !startEnabled(c)) return
-        if (!granted(c, Manifest.permission.ACCESS_FINE_LOCATION)) {
+        if (!granted(c, Manifest.permission.ACCESS_FINE_LOCATION)) { why("can't start: location not allowed")
             Notify.autoDay(c, "$name connected", "Allow location for Companion so your day can start by itself. Tap to open.", true); return
         }
         val resume = Tracker.resumable(c)
         if (!resume && Tracker.endedToday(c)) {   // you ended the day yourself earlier: ask, don't assume
+            why("you already ended a day today → asked with a notification instead")
             Notify.autoDay(c, "$name connected", "You already ended a day today. Tap to start a new one.", true); return
         }
         if (backgroundOk(c)) {
@@ -41,11 +43,12 @@ object AutoDay {
                 if (resume) Tracker.resumeDay(c) else Tracker.startDay(c)
                 if (drive) Tracker.btConnected(c)
                 TrackerService.start(c)
+                why(if (resume) "day picked back up" else "DAY STARTED")
                 val at = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())
                 Notify.autoDay(c, if (resume) "Day picked back up" else "Day started", "${if (resume) "Continued" else "Started"} at $at when $name connected.", false)
                 return
-            } catch (_: Exception) { Tracker.cancelStart(c) }
-        }
+            } catch (e: Exception) { why("start failed: ${e.javaClass.simpleName} → asked with a notification"); Tracker.cancelStart(c) }
+        } else why("no 'Allow all the time' location → asked with a notification")
         Notify.autoDay(c, "$name connected", if (resume) "Tap to pick your day back up." else "Tap to start your day.", true)
     }
 
