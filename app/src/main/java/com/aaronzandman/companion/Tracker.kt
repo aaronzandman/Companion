@@ -279,7 +279,20 @@ object Tracker {
         val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
             .put("start", st).put("end", en).put("m", 0).put("manual", true)
         if (type == "STOP" && j.optBoolean("fuel")) g.put("tag", "FUEL")
-        val segs = Store.segments(c); segs.put(g); Store.saveSegments(c, sorted(segs)); true
+        // Make room: entries overlapping the new one are trimmed, or split around it (a long drive becomes drive / visit / drive).
+        val old = Store.segments(c); val out = JSONArray()
+        for (i in 0 until old.length()) {
+            val o = old.getJSONObject(i); val os = o.optLong("start"); val oe = o.optLong("end")
+            if (oe <= st || os >= en) { out.put(o); continue }
+            val len = maxOf(1L, oe - os).toDouble(); val m = o.optDouble("m", 0.0)
+            if (os < st) out.put(JSONObject(o.toString()).put("end", st).put("m", Math.round(m * (st - os) / len)).put("edited", System.currentTimeMillis()))
+            if (oe > en) out.put(JSONObject(o.toString()).put("start", en).put("m", Math.round(m * (oe - en) / len)).put("edited", System.currentTimeMillis()))
+        }
+        out.put(g); Store.saveSegments(c, sorted(out))
+        // and the entry in progress, if the new one reaches into it
+        val s = state(c); val cur = s.optJSONObject("cur")
+        if (s.optBoolean("running") && cur != null && cur.optLong("start") < en) { cur.put("start", en); save(c, s) }
+        true
     }
 
     fun deleteSegment(c: Context, start: Long) = synchronized(lock) {

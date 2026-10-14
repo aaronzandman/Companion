@@ -441,6 +441,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="hint" id="logNotes" style="margin:8px 0"></div>
     <div id="logList"></div>
     <button class="btn sec" id="logAdd">+ Add an entry</button>
+    <div class="hint" style="margin-top:4px">Missed a store visit? Add it here (At a store, with its times); a drive that covers that time is split around it.</div>
     <div class="hint" style="margin-top:6px">Edits change this phone's log and everything made from it (totals, email, MPG trips). Entries you changed are marked ✎.</div>
   </div>
 </div>
@@ -833,7 +834,7 @@ function mpgTrips(segs,live){
       cur.end=p.end; if(p.mi){ cur.miles+=p.mi.v; if(p.mi.src==="gps") cur.gps=true; }
     } else { const pl=placeName(p.seg); if(pl&&(cur||leg.length)) closeLeg(pl); if(pl) from=pl; }
   });
-  if(cur||leg.length) closeLeg(live?"(still driving)":"(no arrival recorded)");
+  if(cur||leg.length) closeLeg(live?"(still driving)":"End of day");   // no arrival recorded: still loggable
   // whole-mile odometers, chained so each trip starts where the last one ended
   let prevEnd=null;
   trips.forEach(t=>{
@@ -910,7 +911,7 @@ function renderLog(){
     if(!ok){ toast(live?"Couldn't save that. The start must be before now and after the entry before it.":"Couldn't save that. Times can't be in the future."); return; }
     const over=segsForDay(LOG_DAY).filter(g=>String(g.start)!==b.dataset.save&&g.start<en&&g.end>st&&!(g.start===st&&g.end===en));
     track(b.dataset.save==="new"?"log-add":"log-edit"); LOG_EDIT=null; refresh(); renderLog();
-    toast(over.length?"Saved. Heads up: it overlaps another entry; adjust that one too.":"Saved.");
+    toast(b.dataset.save==="new"&&over.length?"Saved. That time was taken out of the entry it overlapped (a long drive is split around it).":over.length?"Saved. Heads up: it overlaps another entry; adjust that one too.":"Saved.");
   });
 }
 function saveOv(){ const ws=atDay(LOG_DAY,$("ovWs").value), we=atDay(LOG_DAY,$("ovWe").value);
