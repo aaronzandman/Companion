@@ -60,6 +60,7 @@ object VanWatch {
     fun start(c: Context) {
         stop(c)
         if (!on(c)) { log(c, "watch off (switch is off)"); return }
+        if (VanSession.enabled(c)) { log(c, "not scanning: the van session holds the vLinker instead"); return }   // the held connection is the signal
         val aa = addrs(c); val nn = names(c)
         val sc = scanner(c) ?: run { log(c, "can't watch: Bluetooth is off"); Store.put(c, "vanWatchErr", "Bluetooth is off"); return }
         val filters = mutableListOf<ScanFilter>()

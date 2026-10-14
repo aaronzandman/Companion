@@ -715,7 +715,7 @@ class MainActivity : Activity() {
             if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast", "vanHold")) {
                 Store.put(this@MainActivity, key, value.take(80))
                 if (key == "vanWatch") { VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity) }
-                if (key == "vanHold" || key == "vanAclAddr") { DiagLog.w(this@MainActivity, "SET", "$key = $value"); if (key == "vanHold" && value != "1") VanSession.stop() }
+                if (key == "vanHold" || key == "vanAclAddr") { DiagLog.w(this@MainActivity, "SET", "$key = $value"); if (key == "vanHold" && value != "1") VanSession.stop(); VanWatch.start(this@MainActivity) }
                 if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }
             }
         }

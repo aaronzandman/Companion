@@ -36,7 +36,7 @@ class TrackerService : Service(), LocationListener {
         DiagLog.w(this, "TIMER", "service command: ${intent?.action ?: "start"} · ${DiagLog.dayState(this)}")
         if (intent?.action == ACTION_STOP || !Tracker.isRunning(this)) { stopEverything(); return START_NOT_STICKY }
         if (intent?.action == ACTION_BT && lm != null) {   // van connected/disconnected: odometer reading, full GPS while driving, fresh status
-            lastOdoTry = 0L; readOdometer(System.currentTimeMillis())
+            readOdometer(System.currentTimeMillis(), force = true)
             if (Tracker.state(this).optJSONObject("cur")?.optString("type") == "DRIVE") moving()
             val t = Tracker.state(this).optJSONObject("cur")?.let { Tracker.describe(this, it) } ?: ""
             if (t.isNotEmpty() && t != lastText) { lastText = t; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, t)) }
@@ -60,7 +60,7 @@ class TrackerService : Service(), LocationListener {
             lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             moving()
         }
-        readOdometer(System.currentTimeMillis())
+        readOdometer(System.currentTimeMillis(), force = true)
         // Starting the day is a good moment to look for an app update (at most every 6 hours).
         Thread { val r = Updater.check(this, 6 * 3600_000L); if (r.optBoolean("ready") && !r.optBoolean("notified")) Notify.updateReady(this, r.optString("tag")) }.start()
         return START_STICKY
@@ -69,7 +69,6 @@ class TrackerService : Service(), LocationListener {
     override fun onLocationChanged(loc: Location) {
         if (loc.provider == LocationManager.NETWORK_PROVIDER && loc.accuracy > 150) return
         val now = System.currentTimeMillis()
-        val before = Tracker.state(this).optLong("boundary", 0)
         val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now, if (loc.hasAccuracy()) loc.accuracy else 50f)
         if (DiagLog.on(this) && now - lastFixLog > 20_000L) {
             lastFixLog = now
@@ -81,11 +80,10 @@ class TrackerService : Service(), LocationListener {
         val st = Tracker.state(this)
         adjustPower(loc, st, now)
         if (!parked && lm != null && wantRate() != rateMs) moving()   // started or stopped driving: change the GPS rate
-        // Odometer: read at each possible arrival/departure, and every 2 minutes while driving.
-        val boundary = st.optLong("boundary", 0)
-        if (Tracker.commuteMark(this, now)) { lastOdoTry = 0L; readOdometer(now) }   // 30 minutes into the trip from home
-        else if (boundary != before && boundary > 0) readOdometer(boundary)
-        else if (st.optJSONObject("cur")?.optString("type") == "DRIVE" && now - lastOdoTry > 120_000L) readOdometer(now)
+        // Odometer: once a minute while driving (the throttle in readOdometer), forced at the commute mark.
+        // Drive start/end are read via the van connect/disconnect (ACTION_BT), which force a read.
+        if (Tracker.commuteMark(this, now)) readOdometer(now, force = true)   // 30 minutes into the trip from home
+        else if (st.optJSONObject("cur")?.optString("type") == "DRIVE") readOdometer(now)
         if (text != lastText) { lastText = text; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, text)) }
     }
 
@@ -139,10 +137,12 @@ class TrackerService : Service(), LocationListener {
     @Volatile private var lastOdoTry = 0L
     private val odoBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastFordTry = 0L
-    private fun readOdometer(t: Long) {
+    private fun readOdometer(t: Long, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastOdoTry < 60_000L) return   // at most once a minute while driving
         if (!Obd.enabled(this)) { readFord(); return }
         if (!odoBusy.compareAndSet(false, true)) return
-        lastOdoTry = System.currentTimeMillis()
+        lastOdoTry = now
         Thread {
             // Stamp the reading halfway through the read (it takes a few seconds), so its time matches the miles.
             try {

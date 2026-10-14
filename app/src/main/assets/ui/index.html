@@ -14,6 +14,8 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-u
 header{background:var(--road);color:#fff;padding:14px 16px 0;position:sticky;top:0;z-index:5}
 header h1{margin:0;font:700 24px/1.1 var(--sign)}
 header .sub{font-size:13px;opacity:.85}
+#btIcon svg{width:22px;height:22px;display:block}
+#btIcon .dot{display:none}
 nav{display:flex;margin-top:10px}
 nav button{flex:1;background:none;border:0;color:#fff;opacity:.75;font:600 15px system-ui;padding:10px 0;border-bottom:3px solid transparent}
 nav button.on{opacity:1;border-bottom-color:#fff}
@@ -146,7 +148,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
 </head>
 <body>
 <header>
-  <h1>Companion</h1>
+  <h1 style="display:flex;align-items:center;gap:8px">Companion<button id="btIcon" title="Van Bluetooth" hidden style="background:none;border:0;padding:0;cursor:pointer;line-height:0"></button></h1>
   <div class="sub" id="sub">Route Planner's partner on the road</div>
   <nav>
     <button data-tab="texts" class="on">Texts<span class="dot" id="newDot" hidden></span></button>
@@ -381,7 +383,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.15.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.16.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -555,6 +557,7 @@ function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dai
 
 function render(){
   const p=S.perm||{};
+  renderBtIcon();
   $("sub").textContent = (S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road")+(S.version?` · v${String(S.version).split(".").slice(0,3).join(".")}`:"")+((S.settings||{}).diagRec?" · ● Recording":"");
   // permissions
   const w=$("smsWarn");
@@ -1139,7 +1142,14 @@ $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 let VAN_FINDING=false;
+$("btIcon").onclick=()=>{ const st=S.settings||{}; alert(st.vanSession ? `vLinker connected\n${st.engineOn?"Engine running":"Engine off"}${st.vanVolts?" · "+st.vanVolts+" V":""}` : "Not connected to the vLinker."); };
 $("vanHold").onchange=e=>{ A.setSetting("vanHold",e.target.checked?"1":"0"); track(e.target.checked?"van-hold-on":"van-hold-off"); if(e.target.checked) toast("Companion will connect to the vLinker when your van checks in."); refresh(); };
+function renderBtIcon(){ const st=S.settings||{}, b=$("btIcon");
+  if(!st.vanSession){ b.hidden=true; return; }
+  b.hidden=false;
+  const on=!!st.engineOn, col="#4FC3F7", dot=on?"#52E08B":"transparent";
+  b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="${col}" d="M12 2l5 4-4 4 4 4-5 4V13l-3 3-1.4-1.4L11 11 7.6 7.4 9 6l3 3V2zm1.3 4.3L12 7.6V5l1.3 1.3zM12 16.4v2.6l1.3-1.3L12 16.4z"/><circle cx="19.5" cy="5" r="3" fill="${dot}"/></svg>`;
+}
 function renderDiag(){ const st=S.settings||{}, on=!!st.diagRec;
   $("diagStatus").textContent = on ? `● Recording since ${when(st.diagSince)} · ${st.diagLines||0} entries` : (st.diagLines ? `Not recording · ${st.diagLines} entries saved` : "Not recording");
   $("diagStatus").style.color = on ? "#c62828" : "";
