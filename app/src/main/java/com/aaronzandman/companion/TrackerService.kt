@@ -46,8 +46,12 @@ class TrackerService : Service(), LocationListener {
             ServiceCompat.startForeground(this, Notify.ID_TRACKER, n,
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
         } catch (e: Exception) {   // Android didn't allow starting from the background: ask with a notification instead
-            Tracker.cancelStart(this); Notify.autoDay(this, "Your day didn't start", "Tap to start your day.", true); stopSelf(); return START_NOT_STICKY
+            val resume = intent?.getStringExtra("resumeNote")
+            if (resume != null) Notify.autoDay(this, resume, "Your day is still running. Tap to keep the timer going.", true)   // keep the day; just ask
+            else { Tracker.cancelStart(this); Notify.autoDay(this, "Your day didn't start", "Tap to start your day.", true) }
+            stopSelf(); return START_NOT_STICKY
         }
+        intent?.getStringExtra("resumeNote")?.let { Notify.autoDay(this, "Timer picked back up", "$it. Your day carried on by itself.", false) }
         if (lm == null) {
             val ok = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (!ok) { stopEverything(); return START_NOT_STICKY }

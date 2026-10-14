@@ -260,6 +260,7 @@ class MainActivity : Activity() {
                     .put("autoStartAddr", Store.get(c, "autoStartAddr", "")).put("autoStartName", Store.get(c, "autoStartName", ""))
                     .put("autoEndHome", Store.get(c, "autoEndHome", "0") == "1")
                     .put("autoBtDrive", Store.get(c, "autoBtDrive", "0") == "1")
+                    .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
                         .put("idEnd", Store.get(c, "fordId", "").takeLast(4))
@@ -607,7 +608,7 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive")) Store.put(this@MainActivity, key, value.take(80))
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot")) Store.put(this@MainActivity, key, value.take(80))
         }
 
         @JavascriptInterface fun copy(text: String) = runOnUiThread {

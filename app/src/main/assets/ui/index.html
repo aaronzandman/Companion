@@ -270,6 +270,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Driving = connected to this device</b><br><span class="hint">Driving starts when your phone connects to it and ends when it disconnects; GPS only works out where you stopped (store, home or elsewhere) and the miles. Turn off if you drive a different vehicle.</span></span><input type="checkbox" class="sw" id="autoBtDrive"></label>
       <label class="set"><span><b>End my day when I get home</b><br><span class="hint">Ends the day once you're home and stopped, then offers the email and the day's MPG trips. Going back out? Start your day again (or just connect to the van) and it continues the same day.</span></span><input type="checkbox" class="sw" id="autoEnd"></label>
       <div class="hint" id="autoEndHint"></div>
+      <label class="set"><span><b>Start after a restart</b><br><span class="hint">If your day is running when the phone restarts (or Companion updates), the timer picks back up by itself. Without location "All the time", you get a notification to tap instead.</span></span><input type="checkbox" class="sw" id="autoBoot"></label>
     </div>
     <div class="card">
       <h2>Home location</h2>
@@ -1012,6 +1013,7 @@ function renderAuto(){
   $("autoStartHint").textContent=h.trim();
   $("autoBgBtn").hidden=!(st.autoStartBt&&!p.bgLoc);
   $("autoBtDrive").checked=!!st.autoBtDrive; $("autoBtDrive").disabled=!cur&&!st.autoBtDrive;
+  $("autoBoot").checked=st.autoBoot!==false;
   $("autoEnd").checked=!!st.autoEndHome; $("autoEnd").disabled=!st.home && !st.autoEndHome;
   $("autoEndHint").textContent=!st.home?"Save your home location below first.":"";
 }
@@ -1020,6 +1022,7 @@ $("autoDev").onchange=e=>{ const o=e.target.selectedOptions[0]; A.setSetting("au
 $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return; } renderAuto(); toast("Paired devices updated. Pair new ones in Android's Bluetooth settings."); };
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
+$("autoBoot").onchange=e=>{ A.setSetting("autoBoot",e.target.checked?"1":"0"); track(e.target.checked?"auto-boot-on":"auto-boot-off"); refresh(); };
 $("autoEnd").onchange=e=>{ A.setSetting("autoEndHome",e.target.checked?"1":"0"); track(e.target.checked?"auto-end-on":"auto-end-off"); refresh(); };
 window.onFordWait=n=>{ let left=n; const b=$("fordRawBtn"), tick=()=>{ if(!b.disabled) return; b.textContent=left>0?`Ford asked us to wait… ${left} s`:"Asking Ford…"; if(left-->0) setTimeout(tick,1000); }; tick(); };
 window.onFordRaw=t=>{ $("fordRawBtn").disabled=false; $("fordRawBtn").textContent="View raw Ford data"; $("frText").textContent=t; $("fordRawDlg").hidden=false; $("fordRawDlg").querySelector("pre").scrollTop=0; refresh(); };

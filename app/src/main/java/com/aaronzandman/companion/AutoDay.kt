@@ -77,3 +77,19 @@ class BtReceiver : BroadcastReceiver() {
         Thread { try { if (on) AutoDay.onConnected(c, d.address, name) else AutoDay.onDisconnected(c, d.address) } catch (_: Exception) {} finally { pr.finish() } }.start()
     }
 }
+
+/**
+ * After the phone restarts (or Companion updates itself), a day that was running carries on: the timer starts again.
+ * If Android won't let it start in the background, a notification asks for one tap instead. Nothing is started if no day was running.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) {
+        if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        if (Store.get(c, "autoBoot", "1") != "1" || !Tracker.isRunning(c)) return
+        val why = if (i.action == Intent.ACTION_BOOT_COMPLETED) "Your phone restarted" else "Companion updated"
+        if (AutoDay.backgroundOk(c) && ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            try { ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java).putExtra("resumeNote", why)); return } catch (_: Exception) {}
+        }
+        Notify.autoDay(c, "$why", "Your day is still running. Tap to keep the timer going.", true)
+    }
+}
