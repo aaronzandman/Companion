@@ -113,6 +113,7 @@ object Env {
         val pw = c.getSystemService(PowerManager::class.java)
         out += "Battery saver ${yn(pw.isPowerSaveMode)} · idle (Doze) ${yn(pw.isDeviceIdleMode)} · screen on ${yn(pw.isInteractive)}"
         out += "This app: ${perms(c)} · unrestricted battery ${yn(pw.isIgnoringBatteryOptimizations(c.packageName))}"
+        out += "Alarms & reminders for this app: ${yn(Lab.exactOk(c))} · lab ${if (Lab.on(c)) "RUNNING" else "off"} · guided step ${P.get(c, "step").ifBlank { "0" }}"
         try {
             @Suppress("DEPRECATION")
             val pi = pm.getPackageInfo(COMPANION, PackageManager.GET_PERMISSIONS)

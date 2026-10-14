@@ -41,6 +41,12 @@ class MainActivity : Activity() {
     private lateinit var testBtn: Button
     private lateinit var devBox: LinearLayout
     private lateinit var logTv: TextView
+    private lateinit var stepTitle: TextView
+    private lateinit var stepBody: TextView
+    private lateinit var stepTimer: TextView
+    private lateinit var nextBtn: Button
+    private lateinit var actBtn: Button
+    private lateinit var stopGuideBtn: Button
     private var lastVer = -1
     private var lastDevs = ""
 
@@ -63,14 +69,25 @@ class MainActivity : Activity() {
         scroll.addView(col); root.addView(scroll, LinearLayout.LayoutParams(-1, -1))
         setContentView(root)
 
-        col.addView(text("1. Tap Start watching.\n2. Start the van, wait 1–2 minutes. Turn it off, wait 1–2 minutes.\n3. Tap the vLinker in the list below → Watch this one, then repeat step 2 with the screen OFF.\n4. Tap Send log.", 14f, INK).apply { setPadding(0, 0, 0, dp(10)) })
-        status = text("", 14f, INK).apply { setTypeface(typeface, Typeface.BOLD); setPadding(0, 0, 0, dp(8)) }
+        // ---------- guided test ----------
+        col.addView(card().apply {
+            stepTitle = text("", 17f, BLUE).apply { setTypeface(typeface, Typeface.BOLD) }
+            stepBody = text("", 15f, INK).apply { setPadding(0, dp(6), 0, dp(6)) }
+            stepTimer = text("", 22f, INK).apply { setTypeface(Typeface.MONOSPACE, Typeface.BOLD) }
+            addView(stepTitle); addView(stepBody); addView(stepTimer)
+            nextBtn = btn("Start guided test", true) { nextStep() }
+            actBtn = btn("", false) { stepAction() }
+            addView(row(nextBtn, actBtn))
+            addView(btn("Stop the guided test", false) { endGuide("stopped by you") }.also { stopGuideBtn = it }, LinearLayout.LayoutParams(-1, -2))
+        })
+        status = text("", 14f, INK).apply { setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(10), 0, dp(8)) }
         col.addView(status)
 
         watchBtn = btn("Start watching", true) { toggleWatch() }
         col.addView(row(watchBtn, btn("Phone check", false) { phoneCheck() }))
-        col.addView(row(btn("Send log", false) { export() }, btn("Clear log", false) { confirmClear() }))
-        col.addView(row(btn("Allow in background", false) { allowBg() }, btn("Bluetooth settings", false) { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }))
+        col.addView(row(btn("Copy log", false) { copyLog() }, btn("Clear log", false) { confirmClear() }))
+        col.addView(row(btn("Allow in background", false) { allowBg() }, btn("Allow alarms", false) { allowAlarms() }))
+        col.addView(head("Manual tools"))
 
         col.addView(card().apply {
             targetTv = text("", 14f, INK); addView(targetTv)
@@ -143,6 +160,7 @@ class MainActivity : Activity() {
         testBtn.text = if (Probe.busy) "Testing… (see log)" else "Test connect to target"
         if (L.version != lastVer) { lastVer = L.version; logTv.text = L.recent(400).asReversed().joinToString("\n").ifBlank { "(empty)" } }
         renderDevices()
+        renderStep()
     }
 
     private class Row(val key: String, val name: String, val addr: String, val kind: String, val rssi: Int, val last: Long, val present: Boolean, val paired: Boolean, val info: String)
@@ -201,6 +219,79 @@ class MainActivity : Activity() {
         WatchService.restartScans(this)
         if (BgTest.on(this)) BgTest.start(this)
         lastDevs = ""
+    }
+
+    // ---------- guided test ----------
+    private class Step(val title: String, val body: String, val waitSec: Int, val action: String = "")
+    private val STEPS = listOf(
+        Step("Guided test (about 12 minutes)", "Do this at the van with the keys, starting with the van OFF. Keep the phone's Bluetooth on. Each step tells you exactly what to do; tap Next only when it says so.\n\nTap “Start guided test” when you're ready.", 0),
+        Step("Step 1 of 6 · Van OFF", "Leave the van OFF and keep this screen open.\nThe app is now trying to reach the vLinker on its own, every way Companion can. Wait for the timer, then tap Next.", 120),
+        Step("Step 2 of 6 · Lock the phone, then start the van", "1. Press the power button to lock the phone (screen OFF).\n2. Start the van and let it idle.\n3. Don't touch the phone for 3 minutes.\n4. Unlock, come back to this screen and tap Next.\n\nDon't tap Test connect yet.", 0),
+        Step("Step 3 of 6 · Van running, screen on", "Keep the van running and leave this screen open. Wait for the timer, then tap Next.", 120),
+        Step("Step 4 of 6 · Test connect", "With the van still running, tap “Test connect” (right). Wait until the log below says “Test finished”, then tap Next.", 0, "test"),
+        Step("Step 5 of 6 · Turn the van off", "Turn the van off and take the key out. Leave this screen open. Wait for the timer, then tap Next.", 180),
+        Step("Step 6 of 6 · Send it to Claude", "Done. Tap “Copy log” (right), then paste it into the chat with Claude.", 0, "copy")
+    )
+    private fun step() = P.get(this, "step").toIntOrNull() ?: 0
+    private fun stepAt() = P.get(this, "stepAt").toLongOrNull() ?: 0L
+
+    private fun nextStep() {
+        val n = step()
+        if (n == 0) {
+            if (!Env.btPerms(this)) { askPerms(); toast("Allow Bluetooth (Nearby devices) first"); return }
+            L.clear(this); lastVer = -1
+            if (!WatchService.running) WatchService.start(this)
+            h.postDelayed({ Lab.start(this) }, 2500)   // let the watch see the vLinker first
+        }
+        if (n == STEPS.size - 1) { endGuide("finished"); return }
+        if (n == 4 && Probe.busy) { toast("Wait for the test to finish"); return }
+        val m = n + 1
+        P.put(this, "step", m.toString()); P.put(this, "stepAt", System.currentTimeMillis().toString())
+        L.w("STEP", "===== ${STEPS[m].title} =====")
+        if (m == STEPS.size - 1) { Lab.stop(this) }
+    }
+
+    private fun endGuide(why: String) {
+        if (step() == 0) return
+        L.w("STEP", "===== guided test $why =====")
+        Lab.stop(this)
+        P.put(this, "step", "0")
+    }
+
+    private fun stepAction() {
+        when (STEPS[step()].action) {
+            "test" -> { val a = P.get(this, "cAddr").ifBlank { P.get(this, "tAddr") }; if (a.isBlank()) toast("No vLinker found — is it paired?") else Probe.run(this, a) }
+            "copy" -> copyLog()
+        }
+    }
+
+    private fun renderStep() {
+        val n = step(); val s = STEPS[n]
+        stepTitle.text = s.title; stepBody.text = s.body
+        val left = if (s.waitSec > 0) (s.waitSec - (System.currentTimeMillis() - stepAt()) / 1000).coerceAtLeast(0) else 0
+        val since = (System.currentTimeMillis() - stepAt()) / 1000
+        stepTimer.text = when { n == 0 -> ""; s.waitSec > 0 && left > 0 -> "Wait %d:%02d".format(left / 60, left % 60); s.waitSec > 0 -> "✓ Time's up — tap Next"; else -> "%d:%02d on this step".format(since / 60, since % 60) }
+        stepTimer.visibility = if (n == 0) View.GONE else View.VISIBLE
+        nextBtn.text = when (n) { 0 -> "Start guided test"; STEPS.size - 1 -> "Finish"; else -> "Next" }
+        nextBtn.isEnabled = !(s.waitSec > 0 && left > 0) && !(n == 4 && Probe.busy)
+        nextBtn.alpha = if (nextBtn.isEnabled) 1f else 0.45f
+        actBtn.visibility = if (s.action.isBlank()) View.GONE else View.VISIBLE
+        actBtn.text = when (s.action) { "test" -> if (Probe.busy) "Testing…" else "Test connect"; "copy" -> "Copy log"; else -> "" }
+        actBtn.isEnabled = !(s.action == "test" && Probe.busy)
+        stopGuideBtn.visibility = if (n == 0) View.GONE else View.VISIBLE
+    }
+
+    private fun copyLog() {
+        val lines = try { L.file(this).readLines() } catch (_: Exception) { emptyList() }
+        var text = "BT Diagnostic log\n" + Env.report(this).joinToString("\n") + "\n\n--- log (oldest first) ---\n" + lines.takeLast(3000).joinToString("\n")
+        if (text.length > 200_000) text = "(older lines cut)\n" + text.takeLast(200_000)
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("BT diagnostic log", text))
+        toast("Log copied (${lines.size} lines). Paste it into the chat.")
+    }
+
+    private fun allowAlarms() {
+        if (Lab.exactOk(this)) { toast("Alarms already allowed"); return }
+        if (Build.VERSION.SDK_INT >= 31) try { startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
     }
 
     // ---------- actions ----------
