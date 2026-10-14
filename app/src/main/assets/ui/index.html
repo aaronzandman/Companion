@@ -499,7 +499,7 @@ function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dai
 
 function render(){
   const p=S.perm||{};
-  $("sub").textContent = S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road";
+  $("sub").textContent = (S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road")+(S.version?` · v${String(S.version).split(".").slice(0,3).join(".")}`:"");
   // permissions
   const w=$("smsWarn");
   if(!p.sms){
