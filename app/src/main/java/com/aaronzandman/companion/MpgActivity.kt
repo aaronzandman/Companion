@@ -149,15 +149,32 @@ class MpgActivity : Activity() {
   if(end!=null) set(e, end);
   if(per){ for(var i=0;i<per.options.length;i++){ if(per.options[i].text.trim().toLowerCase()===(t.personal?'yes':'no')){ per.selectedIndex=i; } } set(per, per.value); }
   var dateSet='kept', dateBefore=dt?dt.value:'';
+  // Is a date string (any of m/d/yyyy, mm/dd/yyyy, yyyy-mm-dd, with or without a time) this trip's day?
+  function sameDay(v){ v=String(v||''); var a=v.match(/(\d{4})-(\d{1,2})-(\d{1,2})/), b=v.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if(a) return +a[1]===d.y&&+a[2]===d.m&&+a[3]===d.d; if(b) return +b[3]===d.y&&+b[1]===d.m&&+b[2]===d.d; return false; }
+  // Write a value the way the page's own scripts will notice (the input's native setter, then the usual events).
+  function force(el,v){ try{ var ro=el.hasAttribute('readonly'); if(ro) el.removeAttribute('readonly');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,v);
+    ['input','change','blur'].forEach(function(e){ el.dispatchEvent(new Event(e,{bubbles:true})); }); if(window.jQuery) jQuery(el).trigger('change');
+    if(ro) el.setAttribute('readonly','readonly'); }catch(x){} }
+  function fmtLike(cur){ var y4=String(d.y), m2=('0'+d.m).slice(-2), d2=('0'+d.d).slice(-2);
+    var time=(String(cur).match(/\s+\d{1,2}:\d{2}.*$/)||[''])[0];
+    if(/^\d{4}-/.test(cur)) return y4+'-'+m2+'-'+d2+(String(cur).indexOf('T')>0?String(cur).slice(10):time);
+    var pad=/^\d{2}\//.test(cur)||!cur; return (pad?m2:d.m)+'/'+(pad?d2:d.d)+'/'+y4+time; }
   if(dt && !d.today){
     var nd=new Date(d.y, d.m-1, d.d);
-    if(window.jQuery && jQuery(dt).datepicker){ try{ jQuery(dt).datepicker('setDate', nd); dateSet='picker'; }catch(x){} }
-    if(dateSet!=='picker'){
-      var cur=dt.value||'', pad=/^\d{2}\//.test(cur), y4=String(d.y);
-      var mm=pad?('0'+d.m).slice(-2):String(d.m), dd=pad?('0'+d.d).slice(-2):String(d.d);
-      dt.removeAttribute('readonly'); set(dt, /^\d{4}-/.test(cur) ? (y4+'-'+('0'+d.m).slice(-2)+'-'+('0'+d.d).slice(-2)) : (mm+'/'+dd+'/'+y4)); dt.setAttribute('readonly','readonly'); dateSet='typed';
-    }
+    if(dt._flatpickr){ try{ dt._flatpickr.setDate(nd,true); dateSet='flatpickr'; }catch(x){} }
+    if(window.jQuery){ var jd=jQuery(dt);
+      try{ if(jd.data('datepicker')||jd.data('DateTimePicker')||(jQuery.fn.datepicker&&jd.hasClass('hasDatepicker'))){ jd.datepicker('setDate', nd); dateSet='picker'; } }catch(x){}
+      try{ if(jd.data('DateTimePicker')){ jd.data('DateTimePicker').date(nd); dateSet='dtp'; } }catch(x){}
+      try{ if(jd.data('daterangepicker')){ jd.data('daterangepicker').setStartDate(nd); jd.data('daterangepicker').setEndDate(nd); dateSet='drp'; } }catch(x){} }
+    if(!sameDay(dt.value)){ force(dt, fmtLike(dt.value||'')); if(dateSet==='kept') dateSet='typed'; }
+    // Hidden copies of the date the form really sends (common with picker widgets)
+    var hid=[].slice.call(document.querySelectorAll('input[type=hidden]')).filter(function(h){ return /date/i.test((h.name||'')+' '+(h.id||'')) && /\d/.test(h.value||''); });
+    hid.forEach(function(h){ if(!sameDay(h.value)) force(h, fmtLike(h.value)); });
     mark(dt);
+    // Keep it: some pages put the original date back right after loading
+    [500,1500,3000].forEach(function(ms){ setTimeout(function(){ if(!sameDay(dt.value)) force(dt, fmtLike(dt.value||'')); hid.forEach(function(h){ if(!sameDay(h.value)) force(h, fmtLike(h.value)); }); }, ms); });
   }
   // MPG's own page scripts can reset Personal right after loading: set it again shortly, unless you've changed it yourself.
   var want=t.personal?'yes':'no', touched=false;
@@ -165,14 +182,15 @@ class MpgActivity : Activity() {
   function setPer(){ if(!per||touched) return; for(var k=0;k<per.options.length;k++){ if(per.options[k].text.trim().toLowerCase()===want){ if(per.selectedIndex!==k){ per.selectedIndex=k; set(per, per.value); } } } }
   if(per && !per.__cpw){ per.__cpw=1; per.addEventListener('change',function(ev){ if(ev.isTrusted) touched=true; }); }
   [400,1000,2000,3500].forEach(function(ms){ setTimeout(setPer, ms); });
-  // At Save: if Personal doesn't match this trip, ask first.
+  // At Save: if the date or Personal doesn't match this trip, ask first.
   var save=q('EditJournalSubmitBtn');
   if(save && !save.__cpw){ save.__cpw=1; save.addEventListener('click',function(ev){
+    if(!d.today && dt && !sameDay(dt.value) && !window.confirm('This trip is for '+d.m+'/'+d.d+'/'+d.y+', but the form\'s date says '+(dt.value||'nothing')+'.\n\nOK = save it with that date anyway.\nCancel = go back and set the date (tap the date box).')){ ev.preventDefault(); ev.stopImmediatePropagation(); return; }
     var got=perText();
     if(per && got && got!==want && !window.confirm('Companion has this trip as Personal: '+(t.personal?'Yes':'No')+', but the form says '+(got==='yes'?'Yes':'No')+'.\n\nOK = save it as it is now.\nCancel = go back and check.')){ ev.preventDefault(); ev.stopImmediatePropagation(); }
   }, true); }
   window.scrollTo(0,0);
-  return JSON.stringify({ok:true, start:start, end:end, mpgStart:mpgStart, dateSet:dateSet, dateBefore:dateBefore, dateAfter:dt?dt.value:'',
+  return JSON.stringify({ok:true, start:start, end:end, mpgStart:mpgStart, dateSet:dateSet, dateOk:d.today||!dt||sameDay(dt.value), hidden:(typeof hid!=='undefined'?hid.length:0), dateBefore:dateBefore, dateAfter:dt?dt.value:'',
     jq:!!window.jQuery, picker:!!(window.jQuery&&jQuery.fn&&jQuery.fn.datepicker)});
 })(${t}, ${date});
 """.trimIndent()
@@ -183,6 +201,8 @@ class MpgActivity : Activity() {
             val start = r.opt("start"); val end = r.opt("end")
             var msg = "${head()}\nOdometer $start (MPG) → $end. Check the yellow fields, then tap Save."
             if (t.isNull("endOdo")) msg += "\nEnding = MPG's start + ${t.optInt("miles")} mi measured by Companion."
+            if (!date.optBoolean("today")) msg += if (r.optBoolean("dateOk")) "\nDate set to ${date.optInt("m")}/${date.optInt("d")}/${date.optInt("y")}: check it before Save."
+                else "\n⚠ Set Date Of Trip to ${date.optInt("m")}/${date.optInt("d")}/${date.optInt("y")} yourself (tap the date box)."
             val est = t.opt("estStart")
             if (start is Number && est is Number && Math.abs(start.toInt() - est.toInt()) > 2)
                 msg += "\nHeads up: Companion expected about $est at the start. If MPG's number is wrong, fix it here and update your odometer in Companion's Settings."
