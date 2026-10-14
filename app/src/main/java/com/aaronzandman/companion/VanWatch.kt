@@ -95,6 +95,7 @@ object VanWatch {
 
     /** A short history of what the watch saw and did (Settings → Van watch log). */
     @Synchronized fun log(c: Context, msg: String) {
+        DiagLog.w(c, "VAN", msg)
         val t = java.text.SimpleDateFormat("M/d h:mm:ss a", java.util.Locale.US).format(java.util.Date())
         val old = Store.get(c, "vanLog", "").lines().filter { it.isNotBlank() }.takeLast(59)
         Store.put(c, "vanLog", (old + "$t  $msg").joinToString("\n"))

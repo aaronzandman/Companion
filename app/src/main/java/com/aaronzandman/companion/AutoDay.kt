@@ -25,9 +25,10 @@ object AutoDay {
 
     /** [force]: the vLinker was seen (VanWatch), which counts as "the van connected" whatever device is picked above. */
     fun onConnected(c: Context, addr: String, name: String, force: Boolean = false) {
+        DiagLog.w(c, "AUTO", "onConnected $name $addr force=$force · ${DiagLog.dayState(c)}")
         if (!force && !addr.equals(Store.get(c, "autoStartAddr", ""), true)) return
         val drive = Tracker.btMode(c) || (force && Store.get(c, "autoBtDrive", "0") == "1")
-        fun why(m: String) { if (force) VanWatch.log(c, m) }
+        fun why(m: String) { if (force) VanWatch.log(c, m) else DiagLog.w(c, "AUTO", m) }
         if (Tracker.isRunning(c)) { why("day already running" + if (drive) " → driving" else ""); if (drive && Tracker.btConnected(c)) TrackerService.ping(c); return }
         if (!force && !startEnabled(c)) return
         if (!granted(c, Manifest.permission.ACCESS_FINE_LOCATION)) { why("can't start: location not allowed")
@@ -53,6 +54,7 @@ object AutoDay {
     }
 
     fun onDisconnected(c: Context, addr: String, force: Boolean = false) {
+        DiagLog.w(c, "AUTO", "onDisconnected $addr force=$force · btMode=${Tracker.btMode(c)} · ${DiagLog.dayState(c)}")
         if (force) { if (Store.get(c, "autoBtDrive", "0") != "1") return }
         else if (!addr.equals(Store.get(c, "autoStartAddr", ""), true) || !Tracker.btMode(c)) return
         if (Tracker.btDisconnected(c)) { TrackerService.ping(c); if (checkHome(c)) TrackerService.stop(c) }
@@ -64,6 +66,7 @@ object AutoDay {
         val st = Tracker.state(c); val cur = st.optJSONObject("cur") ?: return false
         if (cur.optString("type") != "HOME" || !(st.optBoolean("reached") || st.optLong("dep", 0L) > 0L)) return false
         val start = st.optLong("dayStart"); val now = System.currentTimeMillis()
+        DiagLog.w(c, "HOME", "arrived home → ending day (end-at-home is on; left home=${st.optLong("dep") > 0}, reached store=${st.optBoolean("reached")}, day ${(now - start) / 1000}s old) ← ${DiagLog.caller()}")
         Tracker.endDay(c, now, auto = true)
         Notify.dayEnded(c, start, now)
         return true
@@ -80,6 +83,11 @@ class BtReceiver : BroadcastReceiver() {
         val name = try { d.name } catch (_: SecurityException) { null } ?: Store.get(c, "autoStartName", "Bluetooth")
         val pr = goAsync()
         val on = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
+        DiagLog.w(c, "BT", "${if (on) "LINK UP" else "LINK DOWN"} $name ${d.address}" + when {
+            d.address.equals(Store.get(c, "autoStartAddr", ""), true) -> " (= your auto-start device)"
+            d.address.equals(Store.get(c, "obdAddr", ""), true) -> " (= the OBD adapter)"
+            d.address.equals(Store.get(c, "vanAclAddr", ""), true) -> " (= van's own Bluetooth)"
+            else -> " (not used by Companion)" })
         Thread {
             try {
                 if (on) VanWatch.noteAcl(c, d.address, name)
@@ -98,6 +106,7 @@ class BtReceiver : BroadcastReceiver() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        DiagLog.w(c, "BOOT", "${if (i.action == Intent.ACTION_BOOT_COMPLETED) "phone restarted" else "Companion updated"} · ${DiagLog.dayState(c)}")
         VanWatch.start(c)   // background watch for the vLinker doesn't survive a restart or update
         VanLink.start(c)
         if (!Tracker.isRunning(c)) { StandbyService.start(c); return }   // no day running: just be on and ready

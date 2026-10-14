@@ -104,6 +104,7 @@ object VanLink {
                 else -> "minute check: ★ vLinker answered, %.1f V — engine running".format(v)
             })
         }
+        DiagLog.w(c, "CHECK", "minute check: " + if (v == null) "no answer" else "answered, %.1f V".format(v))
         if (v != null) Store.put(c, "vanVolts", "%.1f".format(v))
         if (now == "run") VanWatch.vanOn(c, "vLinker")
         if (!Tracker.isRunning(c)) schedulePoll(c, if (now == "idle") 20_000L else POLL_MS)

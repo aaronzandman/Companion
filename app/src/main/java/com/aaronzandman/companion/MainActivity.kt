@@ -294,7 +294,7 @@ class MainActivity : Activity() {
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
                     .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
-                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("exactAlarm", VanLink.exactOk(c)).put("vanVolts", Store.get(c, "vanVolts", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
+                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("diagRec", DiagLog.on(c)).put("diagSince", Store.get(c, "diagSince", "0").toLongOrNull() ?: 0L).put("diagLines", DiagLog.lines(c)).put("exactAlarm", VanLink.exactOk(c)).put("vanVolts", Store.get(c, "vanVolts", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
                     .put("recentAcl", try { JSONArray(Store.get(c, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() })
                     .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
@@ -413,6 +413,12 @@ class MainActivity : Activity() {
             }, 8000)
         }
 
+        /** Diagnostics recorder: start/stop, read, clear. */
+        @JavascriptInterface fun diagRec(on: Boolean) { if (on) DiagLog.start(this@MainActivity) else DiagLog.stop(this@MainActivity) }
+        @JavascriptInterface fun diagText(): String = DiagLog.text(this@MainActivity)
+        @JavascriptInterface fun diagClear() = DiagLog.clear(this@MainActivity)
+        @JavascriptInterface fun diagMark(note: String) = DiagLog.w(this@MainActivity, "YOU", note.take(200))
+
         /** "Alarms & reminders": lets the vLinker check run every minute even when the phone is idle. */
         @JavascriptInterface fun askExactAlarm() = runOnUiThread {
             if (Build.VERSION.SDK_INT >= 31) try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
@@ -428,7 +434,9 @@ class MainActivity : Activity() {
         @JavascriptInterface fun obdTest() {
             Thread {
                 val log = StringBuilder()
+                DiagLog.w(this@MainActivity, "OBD", "Test connect tapped")
                 val mi = Obd.readMiles(this@MainActivity, log)
+                DiagLog.w(this@MainActivity, "OBD", "Test connect result: ${mi?.let { "%.1f mi".format(it) } ?: "no reading"} · ${log.toString().replace("\n", " | ").take(300)}")
                 if (mi != null) Obd.record(this@MainActivity, System.currentTimeMillis(), mi)
                 val res = JSONObject().put("ok", mi != null).put("miles", mi ?: JSONObject.NULL).put("log", log.toString())
                 runOnUiThread { web.evaluateJavascript("onObdTest($res)", null) }

@@ -340,6 +340,13 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Email my day when I end it</b><br><span class="hint">Tapping End my day opens Outlook with the day's log ready to send.</span></span><input type="checkbox" class="sw" id="autoEmail"></label>
     </div>
     </details>
+    <details class="grp" id="grp-diag"><summary>Diagnostics recorder</summary>
+      <p class="hint" style="margin-top:0">Records every Bluetooth link, every start/stop decision and why, GPS, odometer reads and checks, so a problem can be traced. Stays on this phone until you copy it.</p>
+      <div class="hint" id="diagStatus" style="font-weight:600;margin:6px 0"></div>
+      <button class="btn" id="diagBtn">Start recording</button>
+      <div class="row" style="gap:6px;margin-top:6px"><button class="btn sec" id="diagMark" style="flex:1;margin:0">Add a note</button><button class="btn sec" id="diagCopy" style="flex:1;margin:0">Copy log</button><button class="btn sec" id="diagClear" style="flex:1;margin:0">Clear</button></div>
+      <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Latest entries</summary><pre id="diagPrev" style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto;margin:6px 0;padding:8px;border-radius:8px;background:var(--bg2,rgba(127,127,127,.12))"></pre></details>
+    </details>
     <details class="grp" id="grp-data"><summary>Your data</summary>
     <div class="card">
       <h2>Your stats</h2>
@@ -372,7 +379,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.13.9).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.14.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -536,7 +543,7 @@ function refresh(){ try{ S=JSON.parse(A.state()); }catch(e){} render(); try{ dai
 
 function render(){
   const p=S.perm||{};
-  $("sub").textContent = (S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road")+(S.version?` · v${String(S.version).split(".").slice(0,3).join(".")}`:"");
+  $("sub").textContent = (S.tracker&&S.tracker.running ? "Timer running" : "Route Planner's partner on the road")+(S.version?` · v${String(S.version).split(".").slice(0,3).join(".")}`:"")+((S.settings||{}).diagRec?" · ● Recording":"");
   // permissions
   const w=$("smsWarn");
   if(!p.sms){
@@ -1059,7 +1066,7 @@ function renderAuto(){
       if(cur && !rec.some(r=>r.addr===cur)) rec.unshift({addr:cur,name:st.vanAclName||cur,t:0});
       rec.sort((a,b)=>(/transit|ford|sync|van/i.test(b.name)?1:0)-(/transit|ford|sync|van/i.test(a.name)?1:0));
       va.innerHTML=`<option value="">${rec.length?"Off — pick the van's Bluetooth…":"Off — start the van, then reopen this"}</option>`+rec.map(r=>`<option value="${esc(r.addr)}"${r.addr===cur?" selected":""}>${esc(r.name||r.addr)}${r.t?` · seen ${when(r.t)}`:""}</option>`).join(""); } }
-  $("vanWatch").checked=!!st.vanWatch; $("exactBtn").hidden=!(st.vanWatch&&st.exactAlarm===false); $("vanLog").textContent=(st.vanLog||"Nothing yet.").split("\n").reverse().join("\n"); $("dayToast").checked=st.dayToast!==false;
+  $("vanWatch").checked=!!st.vanWatch; renderDiag(); $("exactBtn").hidden=!(st.vanWatch&&st.exactAlarm===false); $("vanLog").textContent=(st.vanLog||"Nothing yet.").split("\n").reverse().join("\n"); $("dayToast").checked=st.dayToast!==false;
   if(!VAN_FINDING) $("vanHint").textContent = st.vanErr ? `Couldn't start watching (${st.vanErr}). Check that Bluetooth is on.` : st.vanAddr ? `Watching for ${st.vanName||st.vanAddr}`+(st.vanSeen?` · last seen ${when(st.vanSeen)}`:"")+(st.vanVolts?` · ${st.vanVolts} V`:"") : "Turn the van on, then tap Find my vLinker.";
   $("autoBoot").checked=st.autoBoot!==false; $("standby").checked=st.standby!==false;
   $("autoEnd").checked=!!st.autoEndHome; $("autoEnd").disabled=!st.home && !st.autoEndHome;
@@ -1071,6 +1078,17 @@ $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 let VAN_FINDING=false;
+function renderDiag(){ const st=S.settings||{}, on=!!st.diagRec;
+  $("diagStatus").textContent = on ? `● Recording since ${when(st.diagSince)} · ${st.diagLines||0} entries` : (st.diagLines ? `Not recording · ${st.diagLines} entries saved` : "Not recording");
+  $("diagStatus").style.color = on ? "#c62828" : "";
+  $("diagBtn").textContent = on ? "Stop recording" : "Start recording";
+  if($("diagPrev").closest("details").open){ try{ $("diagPrev").textContent=(A.diagText()||"").trim().split("\n").slice(-60).reverse().join("\n")||"Nothing yet."; }catch(e){} }
+}
+$("diagBtn").onclick=()=>{ const on=!(S.settings||{}).diagRec; A.diagRec(on); track(on?"diag-on":"diag-off"); toast(on?"Recording. Use Companion as usual, then come back and tap Copy log.":"Recording stopped."); refresh(); };
+$("diagCopy").onclick=()=>{ const t=A.diagText()||""; if(!t){ toast("Nothing recorded yet"); return; } A.copy(t); toast(`Log copied (${t.trim().split("\n").length} lines). Paste it into the chat.`); };
+$("diagClear").onclick=()=>{ if(confirm("Clear the recorded log?")){ A.diagClear(); refresh(); } };
+$("diagMark").onclick=()=>{ const n=prompt("Note to add to the log (e.g. “just started the van”):"); if(n){ A.diagMark(n); toast("Note added"); refresh(); } };
+document.querySelector("#diagPrev").closest("details").addEventListener("toggle",()=>renderDiag());
 $("exactBtn").onclick=()=>{ A.askExactAlarm&&A.askExactAlarm(); };
 $("vanLogCopy").onclick=()=>{ A.copy((S.settings||{}).vanLog||""); toast("Van watch log copied"); };
 $("dayToast").onchange=e=>{ A.setSetting("dayToast",e.target.checked?"1":"0"); track(e.target.checked?"day-toast-on":"day-toast-off"); refresh(); };

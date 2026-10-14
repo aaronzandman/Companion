@@ -31,7 +31,9 @@ class TrackerService : Service(), LocationListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var lastFixLog = 0L
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        DiagLog.w(this, "TIMER", "service command: ${intent?.action ?: "start"} · ${DiagLog.dayState(this)}")
         if (intent?.action == ACTION_STOP || !Tracker.isRunning(this)) { stopEverything(); return START_NOT_STICKY }
         if (intent?.action == ACTION_BT && lm != null) {   // van connected/disconnected: odometer reading, full GPS while driving, fresh status
             lastOdoTry = 0L; readOdometer(System.currentTimeMillis())
@@ -69,6 +71,12 @@ class TrackerService : Service(), LocationListener {
         val now = System.currentTimeMillis()
         val before = Tracker.state(this).optLong("boundary", 0)
         val text = Tracker.onFix(this, loc.latitude, loc.longitude, if (loc.hasSpeed()) loc.speed else null, now, if (loc.hasAccuracy()) loc.accuracy else 50f)
+        if (DiagLog.on(this) && now - lastFixLog > 20_000L) {
+            lastFixLog = now
+            val home = Tracker.home(this)?.let { Stores.meters(it.first, it.second, loc.latitude, loc.longitude).toInt() }
+            val st = Stores.nearest(this, loc.latitude, loc.longitude)
+            DiagLog.w(this, "GPS", "${loc.provider} · speed ${if (loc.hasSpeed()) "%.1f mph".format(loc.speed * 2.237) else "?"} · ±${loc.accuracy.toInt()} m · home ${home?.let { "$it m" } ?: "not set"} · nearest store ${st?.let { "${it.first.num} ${it.second.toInt()} m" } ?: "-"} · $text")
+        }
         if (AutoDay.checkHome(this)) { lastText = ""; stopEverything(); return }   // arrived home: day over
         val st = Tracker.state(this)
         adjustPower(loc, st, now)
@@ -130,7 +138,12 @@ class TrackerService : Service(), LocationListener {
         lastOdoTry = System.currentTimeMillis()
         Thread {
             // Stamp the reading halfway through the read (it takes a few seconds), so its time matches the miles.
-            try { val t0 = System.currentTimeMillis(); Obd.readMiles(this)?.let { Obd.record(this, (t0 + System.currentTimeMillis()) / 2, it) } } finally { odoBusy.set(false) }
+            try {
+                val t0 = System.currentTimeMillis(); DiagLog.w(this, "OBD", "odometer read starting (connects to the adapter)")
+                val mi = Obd.readMiles(this)
+                DiagLog.w(this, "OBD", "odometer read done in ${System.currentTimeMillis() - t0} ms: ${mi?.let { "%.1f mi".format(it) } ?: "no reading"}")
+                mi?.let { Obd.record(this, (t0 + System.currentTimeMillis()) / 2, it) }
+            } finally { odoBusy.set(false) }
         }.start()
     }
 
@@ -145,6 +158,7 @@ class TrackerService : Service(), LocationListener {
     }
 
     private fun stopEverything() {
+        DiagLog.w(this, "TIMER", "timer stopping · ${DiagLog.dayState(this)} ← ${DiagLog.caller()}")
         try { lm?.removeUpdates(this) } catch (_: Exception) {}
         lm = null
         if (!Tracker.isRunning(this)) StandbyService.start(this)   // day over: back to standby

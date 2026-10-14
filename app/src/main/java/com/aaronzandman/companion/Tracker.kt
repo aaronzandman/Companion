@@ -28,10 +28,19 @@ object Tracker {
     private val lock = Any()
 
     fun state(c: Context) = JSONObject(Store.get(c, "trk", "{}"))
-    private fun save(c: Context, s: JSONObject) = Store.put(c, "trk", s.toString())
+    private fun save(c: Context, s: JSONObject) {
+        if (DiagLog.on(c)) try {   // recorder: note every change of what the timer thinks you're doing
+            val o = state(c); val a = o.optJSONObject("cur"); val b = s.optJSONObject("cur")
+            val was = if (!o.optBoolean("running")) "OFF" else "${a?.optString("type")}${a?.optString("store")?.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""}"
+            val now = if (!s.optBoolean("running")) "OFF" else "${b?.optString("type")}${b?.optString("store")?.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""}"
+            if (was != now) DiagLog.w(c, "STATE", "$was → $now ← ${DiagLog.caller()}")
+        } catch (_: Exception) {}
+        Store.put(c, "trk", s.toString())
+    }
     fun isRunning(c: Context) = state(c).optBoolean("running", false)
 
     fun startDay(c: Context, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+        DiagLog.w(c, "DAY", "★ START day ← ${DiagLog.caller()}")
         val s = JSONObject().put("running", true).put("dayStart", now).put("dep", 0L).put("reached", false).put("mark", false)
             .put("cur", JSONObject().put("type", "STOP").put("store", "").put("start", now))
         save(c, s)
@@ -39,6 +48,7 @@ object Tracker {
 
     fun endDay(c: Context, now: Long = System.currentTimeMillis(), auto: Boolean = false) = synchronized(lock) {
         val s = state(c)
+        DiagLog.w(c, "DAY", "★ END day (auto=$auto) · was: ${DiagLog.dayState(c)} ← ${DiagLog.caller()}")
         s.optJSONObject("cur")?.let { close(c, it, now) }
         save(c, JSONObject().put("running", false).put("lastEnd", now).put("auto", auto)
             .put("lastDayStart", s.optLong("dayStart", now)).put("lastDep", s.optLong("dep", 0L)).put("lastReached", s.optBoolean("reached")))
@@ -54,6 +64,7 @@ object Tracker {
 
     /** Carries on the day that ended at home: same start of day, the time at home in between isn't counted. */
     fun resumeDay(c: Context, now: Long = System.currentTimeMillis()) = synchronized(lock) {
+        DiagLog.w(c, "DAY", "★ RESUME day ← ${DiagLog.caller()}")
         val o = state(c)
         save(c, JSONObject().put("running", true).put("dayStart", o.optLong("lastDayStart", now)).put("dep", o.optLong("lastDep", 0L))
             .put("reached", o.optBoolean("lastReached")).put("mark", true).put("resumed", now)
@@ -61,7 +72,7 @@ object Tracker {
     }
 
     /** Undo a start that Android didn't allow (nothing was recorded yet). */
-    fun cancelStart(c: Context) = synchronized(lock) { val s = state(c); if (s.optBoolean("running")) save(c, JSONObject().put("running", false)) }
+    fun cancelStart(c: Context) = synchronized(lock) { DiagLog.w(c, "DAY", "start CANCELLED ← ${DiagLog.caller()}"); val s = state(c); if (s.optBoolean("running")) save(c, JSONObject().put("running", false)) }
 
     private fun close(c: Context, cur: JSONObject, end: Long) {
         val start = cur.optLong("start")
@@ -209,6 +220,7 @@ object Tracker {
 
     /** Van connected: a drive starts now. A reconnect within 90 s of a disconnect just continues the same drive. */
     fun btConnected(c: Context, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        DiagLog.w(c, "DRIVE", "btConnected → drive starts ← ${DiagLog.caller()}")
         val s = state(c); if (!s.optBoolean("running")) return@synchronized false
         val cur = s.optJSONObject("cur") ?: JSONObject().put("type", "STOP").put("store", "").put("start", now)
         if (cur.optString("type") == "DRIVE") return@synchronized false
@@ -225,6 +237,7 @@ object Tracker {
 
     /** Van disconnected: the drive ends now. Where you are decides store / home / other stop (GPS keeps refining it). */
     fun btDisconnected(c: Context, now: Long = System.currentTimeMillis()): Boolean = synchronized(lock) {
+        DiagLog.w(c, "DRIVE", "btDisconnected → drive ends ← ${DiagLog.caller()}")
         val s = state(c); if (!s.optBoolean("running")) return@synchronized false
         val cur = s.optJSONObject("cur") ?: return@synchronized false
         if (cur.optString("type") != "DRIVE") return@synchronized false

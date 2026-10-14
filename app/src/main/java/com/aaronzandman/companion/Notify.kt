@@ -100,6 +100,7 @@ object Notify {
     const val ID_STANDBY = 5
     /** Automatic start/end messages. With [tapStarts], tapping opens Companion and starts (or resumes) the day. */
     fun autoDay(c: Context, title: String, text: String, tapStarts: Boolean) {
+        DiagLog.w(c, "NOTE", "notification: $title — $text")
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val i = Intent(c, MainActivity::class.java).putExtra("tab", "timer").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

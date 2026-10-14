@@ -19,6 +19,7 @@ class StandbyService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        DiagLog.w(this, "STANDBY", "standby command · enabled=${enabled(this)} · ${DiagLog.dayState(this)}")
         if (!enabled(this) || Tracker.isRunning(this)) { stop(); return START_NOT_STICKY }
         Notify.channels(this)
         val n = NotificationCompat.Builder(this, Notify.CH_STANDBY).setSmallIcon(R.drawable.ic_notify)
