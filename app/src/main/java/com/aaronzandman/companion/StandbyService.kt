@@ -28,10 +28,13 @@ class StandbyService : Service() {
         try {
             ServiceCompat.startForeground(this, Notify.ID_STANDBY, n, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         } catch (_: Exception) { stopSelf(); return START_NOT_STICKY }
+        VanLink.start(this)   // ask the vLinker to connect when the van starts
         // A good moment to look for an update (at most every 6 hours)
         Thread { try { val r = Updater.check(this, 6 * 3600_000L); if (r.optBoolean("ready")) Notify.updateReady(this, r.optString("tag")) } catch (_: Exception) {} }.start()
         return START_STICKY
     }
+
+    override fun onDestroy() { if (Tracker.isRunning(this) || !VanWatch.on(this)) VanLink.stop(this); super.onDestroy() }
 
     private fun stop() { try { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}; stopSelf() }
 

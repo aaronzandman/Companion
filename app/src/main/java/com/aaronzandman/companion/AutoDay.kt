@@ -99,6 +99,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         VanWatch.start(c)   // background watch for the vLinker doesn't survive a restart or update
+        VanLink.start(c)
         if (!Tracker.isRunning(c)) { StandbyService.start(c); return }   // no day running: just be on and ready
         if (Store.get(c, "autoBoot", "1") != "1") { StandbyService.start(c); return }
         val why = if (i.action == Intent.ACTION_BOOT_COMPLETED) "Your phone restarted" else "Companion updated"

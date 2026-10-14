@@ -2,7 +2,6 @@ package com.aaronzandman.companion
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanFilter
@@ -38,6 +37,9 @@ object VanWatch {
         l += o
         return l.filter { it.isNotBlank() }.distinct()
     }
+    /** The vLinker's Bluetooth LE address (FD-IOS), for the standing connection request. */
+    fun leAddr(c: Context): String? { val o = Store.get(c, "obdAddr", ""); return addrs(c).firstOrNull { !it.equals(o, true) } }
+
     fun addrs(c: Context): List<String> {
         val l = mutableListOf(Store.get(c, "vanBleAddr", ""))
         val o = Store.get(c, "obdAddr", "").uppercase()
@@ -63,8 +65,6 @@ object VanWatch {
         val filters = mutableListOf<ScanFilter>()
         for (a in aa) {
             try { filters.add(ScanFilter.Builder().setDeviceAddress(a).build()) } catch (_: Exception) {}
-            // The vLinker's LE address (DD:…) is a "random" one; Android's plain address filter only matches "public" ones.
-            if (Build.VERSION.SDK_INT >= 33) try { filters.add(ScanFilter.Builder().setDeviceAddress(a, BluetoothDevice.ADDRESS_TYPE_RANDOM).build()) } catch (_: Exception) {}
         }
         for (n in nn) filters.add(ScanFilter.Builder().setDeviceName(n).build())
         // vLinker FD-IOS advertises the OBD service 18F0; matches are checked in [accept] so other adapters are ignored.

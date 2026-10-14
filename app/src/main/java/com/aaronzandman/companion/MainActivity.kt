@@ -90,7 +90,7 @@ class MainActivity : Activity() {
         handlePlanner(intent)
         handleAuto(intent)
         StandbyService.start(this)
-        VanWatch.start(this)
+        VanWatch.start(this); VanLink.start(this)
     }
 
     /** Starts the day, or picks today's day back up if it ended automatically at home (e.g. lunch at home). */
@@ -294,7 +294,7 @@ class MainActivity : Activity() {
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
                     .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
-                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
+                    .put("dayToast", Store.get(c, "dayToast", "1") == "1").put("vanLog", Store.get(c, "vanLog", "")).put("exactAlarm", VanLink.exactOk(c)).put("vanVolts", Store.get(c, "vanVolts", "")).put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
                     .put("recentAcl", try { JSONArray(Store.get(c, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() })
                     .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
@@ -408,15 +408,20 @@ class MainActivity : Activity() {
             web.postDelayed({
                 try { scanner.stopScan(cb) } catch (_: Exception) {}
                 val e = found.entries.firstOrNull()
-                if (e != null) { Store.put(this@MainActivity, "vanBleAddr", e.key); Store.put(this@MainActivity, "vanBleName", e.value); VanWatch.start(this@MainActivity) }
+                if (e != null) { Store.put(this@MainActivity, "vanBleAddr", e.key); Store.put(this@MainActivity, "vanBleName", e.value); VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity) }
                 web.evaluateJavascript("onVanFind(${JSONObject().put("addr", e?.key ?: "").put("name", e?.value ?: "")})", null)
             }, 8000)
+        }
+
+        /** "Alarms & reminders": lets the vLinker check run every minute even when the phone is idle. */
+        @JavascriptInterface fun askExactAlarm() = runOnUiThread {
+            if (Build.VERSION.SDK_INT >= 31) try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
         }
 
         @JavascriptInterface fun setObd(addr: String, name: String, type: String) {
             Store.put(this@MainActivity, "obdAddr", addr); Store.put(this@MainActivity, "obdName", name)
             Store.put(this@MainActivity, "obdType", if (type in setOf("classic", "ble")) type else "auto")
-            VanWatch.start(this@MainActivity)
+            VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity)
         }
 
         /** Connects and reads the odometer once; calls onObdTest(result) with the reading and a short log. */
@@ -668,7 +673,7 @@ class MainActivity : Activity() {
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
             if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast")) {
                 Store.put(this@MainActivity, key, value.take(80))
-                if (key == "vanWatch") VanWatch.start(this@MainActivity)
+                if (key == "vanWatch") { VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity) }
                 if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }
             }
         }
