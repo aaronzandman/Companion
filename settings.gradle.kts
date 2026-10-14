@@ -8,3 +8,4 @@ dependencyResolutionManagement {
 rootProject.name = "Companion"
 include(":app")
 include(":diag")
+include(":sap")
