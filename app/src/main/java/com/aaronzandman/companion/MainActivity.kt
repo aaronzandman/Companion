@@ -294,6 +294,8 @@ class MainActivity : Activity() {
                     .put("autoBoot", Store.get(c, "autoBoot", "1") == "1")
                     .put("standby", StandbyService.enabled(c))
                     .put("vanWatch", VanWatch.on(c)).put("vanAddr", VanWatch.addr(c)).put("vanName", VanWatch.name(c))
+                    .put("vanAclAddr", Store.get(c, "vanAclAddr", "")).put("vanAclName", Store.get(c, "vanAclName", ""))
+                    .put("recentAcl", try { JSONArray(Store.get(c, "recentAcl", "[]")) } catch (_: Exception) { JSONArray() })
                     .put("vanSeen", Store.get(c, "vanSeen", "0").toLongOrNull() ?: 0L).put("vanErr", Store.get(c, "vanWatchErr", ""))
                     .put("ford", JSONObject().put("configured", Ford.configured(c)).put("connected", Ford.connected(c))
                         .put("vehicle", Store.get(c, "fordVehicle", "")).put("use", Store.get(c, "fordOdo", "1") == "1")
@@ -664,7 +666,7 @@ class MainActivity : Activity() {
             }
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch")) {
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName")) {
                 Store.put(this@MainActivity, key, value.take(80))
                 if (key == "vanWatch") VanWatch.start(this@MainActivity)
                 if (key == "standby") { if (value == "1") StandbyService.start(this@MainActivity) else StandbyService.stop(this@MainActivity) }

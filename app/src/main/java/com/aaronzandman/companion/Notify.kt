@@ -18,6 +18,7 @@ object Notify {
     const val CH_TRACKER = "tracker"
     const val ID_TRACKER = 1
     const val CH_UPDATE = "updates"
+    const val CH_DAY = "day"
     const val ID_UPDATE = 3
 
     /** "Update ready" notification; tapping it opens Companion's install prompt. */
@@ -38,6 +39,7 @@ object Notify {
             nm.createNotificationChannel(NotificationChannel(CH_TRACKER, "Timer running", NotificationManager.IMPORTANCE_LOW))
             nm.createNotificationChannel(NotificationChannel(CH_STANDBY, "Companion is on", NotificationManager.IMPORTANCE_MIN))
             nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CH_DAY, "Day started / ended", NotificationManager.IMPORTANCE_HIGH))
         }
     }
 
@@ -103,10 +105,17 @@ object Notify {
         val i = Intent(c, MainActivity::class.java).putExtra("tab", "timer").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         if (tapStarts) i.putExtra("startDay", true)
         val pi = PendingIntent.getActivity(c, if (tapStarts) 91 else 92, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val b = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify).setContentTitle(title).setContentText(text)
+        val b = NotificationCompat.Builder(c, CH_DAY).setSmallIcon(R.drawable.ic_notify).setContentTitle(title).setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(pi).setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_STATUS)
         if (tapStarts) b.addAction(0, "Start my day", pi)
+        toast(c, title)
         try { NotificationManagerCompat.from(c).notify(ID_AUTODAY, b.build()) } catch (_: SecurityException) {}
+    }
+
+    /** A quick on-screen message too (shows even when Companion is closed). */
+    fun toast(c: Context, text: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post { try { android.widget.Toast.makeText(c.applicationContext, "Companion: $text", android.widget.Toast.LENGTH_LONG).show() } catch (_: Exception) {} }
     }
 
     /** "Day ended at home": tapping opens the Timer and, if you email your day, Outlook with the log. */
@@ -118,8 +127,9 @@ object Notify {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pi = PendingIntent.getActivity(c, 93, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val text = "Ended at $at when you got home. Tap to review and email your time. Heading out again? Your day picks back up when you start it."
-        val n = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify).setContentTitle("Day ended at home")
+        val n = NotificationCompat.Builder(c, CH_DAY).setSmallIcon(R.drawable.ic_notify).setContentTitle("Day ended at home")
             .setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(pi).setAutoCancel(true).build()
+        toast(c, "Day ended at home")
         try { NotificationManagerCompat.from(c).notify(ID_AUTODAY, n) } catch (_: SecurityException) {}
     }
 

@@ -197,6 +197,7 @@ class MainActivity : Activity() {
     private fun setTarget(r: Row) {
         P.put(this, "tAddr", r.addr); P.put(this, "tName", r.name)
         L.w("TARGET", "target set: ${r.name.ifBlank { "(no name)" }} ${r.addr} (${r.kind})")
+        if (Env.interesting(r.name) && !r.kind.contains("LE")) L.w("TARGET", "note: this is a classic (Bluetooth 3.0) identity, which never advertises. To test the background watch, pick its LE twin instead (e.g. vLinker FD-IOS).")
         WatchService.restartScans(this)
         if (BgTest.on(this)) BgTest.start(this)
         lastDevs = ""

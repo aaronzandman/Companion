@@ -77,7 +77,14 @@ class BtReceiver : BroadcastReceiver() {
         val name = try { d.name } catch (_: SecurityException) { null } ?: Store.get(c, "autoStartName", "Bluetooth")
         val pr = goAsync()
         val on = i.action == BluetoothDevice.ACTION_ACL_CONNECTED
-        Thread { try { if (on) AutoDay.onConnected(c, d.address, name) else AutoDay.onDisconnected(c, d.address) } catch (_: Exception) {} finally { pr.finish() } }.start()
+        Thread {
+            try {
+                if (on) VanWatch.noteAcl(c, d.address, name)
+                val van = VanWatch.aclAddr(c).isNotBlank() && d.address.equals(VanWatch.aclAddr(c), true)
+                if (van) { if (on) VanWatch.vanOn(c, name) }   // the van's own Bluetooth only links for a second: use the link, ignore the drop
+                else if (on) AutoDay.onConnected(c, d.address, name) else AutoDay.onDisconnected(c, d.address)
+            } catch (_: Exception) {} finally { pr.finish() }
+        }.start()
     }
 }
 
