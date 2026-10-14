@@ -3,8 +3,6 @@ package com.aaronzandman.sapcap
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -48,7 +46,6 @@ class MainActivity : Activity() {
     private lateinit var url: EditText
     private lateinit var pauseBtn: Button
     private lateinit var status: TextView
-    private lateinit var copyBtn: Button
 
     @Volatile private var paused = true
     private data class Cap(val data: Boolean, val text: String)
@@ -56,10 +53,10 @@ class MainActivity : Activity() {
     private var seq = 0
     private var dataCount = 0
 
-    private var copyParts: List<String>? = null
-    private var copyI = 0
     private var fileChooser: ValueCallback<Array<Uri>>? = null
     private val REQ_FILE = 71
+    private val REQ_SAVE = 72
+    private var pendingSave: String? = null
 
     private val GREEN = Color.parseColor("#0B6E4F")
     private val RED = Color.parseColor("#C62828")
@@ -105,10 +102,9 @@ class MainActivity : Activity() {
             btn("Grab this page", false) { grabPage() },
             btn("Clear", false) { confirmClear() }
         ))
-        copyBtn = btn("Copy log", false) { copyLog() }
         root.addView(rowOf(
-            copyBtn,
-            btn("Copy data only", false) { copyData() }
+            btn("Save all to a file", true) { save(false) },
+            btn("Save data only", false) { save(true) }
         ))
 
         setContentView(root)
@@ -147,6 +143,13 @@ class MainActivity : Activity() {
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         super.onActivityResult(req, res, data)
         if (req == REQ_FILE) { fileChooser?.onReceiveValue(FileChooserParamsResult.parse(res, data)); fileChooser = null }
+        if (req == REQ_SAVE) {
+            val uri = data?.data; val text = pendingSave; pendingSave = null
+            if (res == Activity.RESULT_OK && uri != null && text != null) {
+                try { contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }; toast("Saved. Upload that file to the chat.") }
+                catch (e: Exception) { toast("Couldn't save: ${e.message}") }
+            }
+        }
     }
 
     private fun go() {
@@ -226,7 +229,6 @@ class MainActivity : Activity() {
             "● PAUSED — safe to sign in. Captured ${caps.size} responses (${dataCount} look like data)."
         else "● RECORDING. Captured ${caps.size} responses (${dataCount} look like data)."
         status.setTextColor(if (paused) MUTED else RED)
-        copyParts = null; copyBtn.text = "Copy log"
     }
 
     private fun confirmClear() {
@@ -238,31 +240,17 @@ class MainActivity : Activity() {
     private fun header() = "SAP Capture log · ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}\n" +
         "(secrets masked; keystrokes never recorded)\n\n"
 
-    private fun copyText(all: String, label: String) {
-        if (all.isBlank()) { toast("Nothing captured yet"); return }
-        if (all.length <= PART) { clip(all); copyParts = null; copyBtn.text = "Copy log"; toast("$label copied."); return }
-        if (copyParts == null || copyI >= copyParts!!.size) { copyParts = split(all); copyI = 0 }
-        val n = copyParts!!.size; val i = copyI
-        clip("[SAP capture part ${i + 1} of $n]\n" + copyParts!![i]); copyI++
-        toast(if (i + 1 < n) "Part ${i + 1} of $n copied. Paste it, then tap Copy part ${i + 2}." else "Last part ($n of $n) copied.")
-        copyBtn.text = if (copyI < n) "Copy part ${copyI + 1} of $n" else "Copy log"
-    }
-
-    private fun copyLog() = copyText(header() + caps.joinToString("\n\n————————\n\n") { it.text }, "Log")
-    private fun copyData() = copyText(header() + caps.filter { it.data }.joinToString("\n\n————————\n\n") { it.text }, "Data")
-
-    private fun split(t: String): List<String> {
-        val out = ArrayList<String>(); val sb = StringBuilder()
-        for (line in t.split("\n")) {
-            if (sb.length + line.length + 1 > PART && sb.isNotEmpty()) { out.add(sb.toString()); sb.setLength(0) }
-            sb.append(line).append("\n")
-        }
-        if (sb.isNotBlank()) out.add(sb.toString())
-        return out
+    /** Writes everything (or just the data-looking responses) to a text file you pick, so you can upload it. */
+    private fun save(dataOnly: Boolean) {
+        val body = if (dataOnly) caps.filter { it.data } else caps.toList()
+        if (body.isEmpty()) { toast(if (dataOnly) "No data captured yet" else "Nothing captured yet"); return }
+        pendingSave = header() + body.joinToString("\n\n————————\n\n") { it.text }
+        val name = "sap-capture-${SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.US).format(Date())}${if (dataOnly) "-data" else ""}.txt"
+        val i = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain").putExtra(Intent.EXTRA_TITLE, name)
+        try { startActivityForResult(i, REQ_SAVE) } catch (_: Exception) { pendingSave = null; toast("Couldn't open the file picker") }
     }
 
     // ---------- helpers ----------
-    private fun clip(t: String) = getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("SAP capture", t))
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
     private fun hideKeyboard() { try { (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(url.windowToken, 0) } catch (_: Exception) {} }
 
@@ -281,7 +269,6 @@ class MainActivity : Activity() {
     override fun onBackPressed() { if (web.canGoBack()) web.goBack() else super.onBackPressed() }
 
     companion object {
-        private const val PART = 18000
         private val HOOK = """
           (function(){ if(window.__sapcap) return; window.__sapcap=true; var B=window.__SAP;
             function send(o){ try{ B&&B.cap(JSON.stringify(o)); }catch(e){} }
