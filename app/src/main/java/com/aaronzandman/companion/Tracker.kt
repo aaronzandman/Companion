@@ -272,6 +272,24 @@ object Tracker {
         cur.put("edited", now); s.remove("cand"); save(c, s); true
     }
 
+    /** Replaces a day's entries with imported ones. If that day is still running, the timer is ended first. Returns how many were saved. */
+    fun importDay(c: Context, day: String, list: JSONArray): Int = synchronized(lock) {
+        val f = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val s = state(c)
+        if (s.optBoolean("running") && f.format(java.util.Date(s.optLong("dayStart"))) == day) save(c, JSONObject().put("running", false).put("lastEnd", System.currentTimeMillis()))
+        val keep = JSONArray(); val old = Store.segments(c)
+        for (i in 0 until old.length()) { val g = old.getJSONObject(i); if (f.format(java.util.Date(g.optLong("start"))) != day) keep.put(g) }
+        var n = 0; val now = System.currentTimeMillis()
+        for (i in 0 until list.length()) { val j = list.getJSONObject(i)
+            val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")
+            if (en <= st || type !in TYPES || en > now + 60_000L || f.format(java.util.Date(st)) != day) continue
+            val g = JSONObject().put("type", type).put("store", if (type == "STORE") j.optString("store").filter { it.isDigit() }.take(5) else "")
+                .put("start", st).put("end", en).put("m", Math.round(j.optDouble("m", 0.0))).put("imported", true)
+            if (type == "STOP" && j.optString("tag") == "FUEL") g.put("tag", "FUEL")
+            keep.put(g); n++ }
+        Store.saveSegments(c, sorted(keep)); n
+    }
+
     /** Adds an entry you missed (for example a stop before you started the timer). */
     fun addSegment(c: Context, j: JSONObject): Boolean = synchronized(lock) {
         val st = j.optLong("start"); val en = j.optLong("end"); val type = j.optString("type")

@@ -441,6 +441,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     <div class="hint" id="logNotes" style="margin:8px 0"></div>
     <div id="logList"></div>
     <button class="btn sec" id="logAdd">+ Add an entry</button>
+    <button class="btn sec" id="logCsv">Import log (CSV)</button>
     <div class="hint" style="margin-top:4px">Missed a store visit? Add it here (At a store, with its times); a drive that covers that time is split around it.</div>
     <div class="hint" style="margin-top:6px">Edits change this phone's log and everything made from it (totals, email, MPG trips). Entries you changed are marked ✎.</div>
   </div>
@@ -923,6 +924,52 @@ $("logDay").onchange=e=>{ LOG_DAY=e.target.value; LOG_EDIT=null; renderLog(); };
 $("logAdd").onclick=()=>{ LOG_EDIT="new"; renderLog(); $("logDlg").querySelector(".box").scrollTop=0; };
 $("logClose").onclick=()=>{ $("logDlg").hidden=true; };
 $("logOpen").onclick=()=>openLog();
+// ---- import a day's log from CSV (Companion's own emailed .csv, or one made to the same columns) ----
+// Columns used: Date, Start, End, Activity (Driving / At store / At home / Stopped / Fuel stop), Store, Miles. Others are ignored.
+function csvRows(t){ const rows=[]; let row=[], f="", q=false;
+  for(let i=0;i<t.length;i++){ const ch=t[i];
+    if(q){ if(ch==='"'){ if(t[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=ch; }
+    else if(ch==='"') q=true; else if(ch===','){ row.push(f); f=""; } else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&t[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=""; } else f+=ch; }
+  if(f!==""||row.length){ row.push(f); rows.push(row); } return rows.filter(r=>r.some(x=>x.trim())); }
+function parseLogCsv(text){
+  const rows=csvRows(text.replace(/^\uFEFF/,"")); if(!rows.length) return {err:"The file is empty."};
+  const h=rows[0].map(x=>x.trim().toLowerCase()), col=n=>h.indexOf(n);
+  const iD=col("date"), iS=col("start"), iE=col("end"), iA=col("activity"), iSt=col("store"), iM=col("miles");
+  if(iD<0||iS<0||iE<0||iA<0) return {err:"The file needs Date, Start, End and Activity columns (like the spreadsheet Companion emails)."};
+  const tm2=(d,v)=>{ const m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d.trim())||/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(d.trim()); if(!m) return null;
+    const [y,mo,da]=m[0].includes("-")?[+m[1],+m[2],+m[3]]:[+m[3],+m[1],+m[2]];
+    const t=/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?$/.exec(v.trim()); if(!t) return null;
+    let hh=+t[1]; const ap=(t[3]||"").toUpperCase(); if(ap==="PM"&&hh<12) hh+=12; if(ap==="AM"&&hh===12) hh=0;
+    return new Date(y,mo-1,da,hh,+t[2]).getTime(); };
+  const kind=a=>{ a=a.trim().toLowerCase(); return a.startsWith("driv")?["DRIVE",""]:a.includes("store")?["STORE",""]:a.includes("home")?["HOME",""]:a.includes("fuel")?["STOP","FUEL"]:a.startsWith("stop")?["STOP",""]:null; };
+  const out=[], bad=[];
+  rows.slice(1).forEach((r,i)=>{
+    if(/^total/i.test((r[0]||"").trim())) return;
+    const k=kind(r[iA]||""), st=tm2(r[iD]||"",r[iS]||""); let en=tm2(r[iD]||"",(r[iE]||"").replace(/in progress/i,""));
+    if(!k||!st||!en){ bad.push(i+2); return; }
+    if(en<=st) en+=864e5;   // past midnight
+    const g={type:k[0],tag:k[1],store:k[0]==="STORE"?String(r[iSt]||"").replace(/\D/g,""):"",start:st,end:en,m:(parseFloat(r[iM])||0)*1609.344};
+    const p=out[out.length-1];   // Companion's own file splits a drive into personal/work rows: join them back up
+    if(p&&p.type===g.type&&p.store===g.store&&p.tag===g.tag&&Math.abs(p.end-g.start)<60e3){ p.end=g.end; p.m+=g.m; } else out.push(g);
+  });
+  if(!out.length) return {err:"No log entries found in the file."+(bad.length?` Rows ${bad.slice(0,5).join(", ")} couldn't be read.`:"")};
+  const days=[...new Set(out.map(g=>dayKey(g.start)))];
+  return {entries:out, days, bad};
+}
+$("logCsv").onclick=()=>{ $("logCsv").disabled=true; $("logCsv").textContent="Choose the .csv file…"; A.pickCsv(); };
+window.onCsv=text=>{
+  $("logCsv").disabled=false; $("logCsv").textContent="Import log (CSV)";
+  if(text===null) return; if(!text){ toast("Couldn't read that file."); return; }
+  const r=parseLogCsv(text); if(r.err){ alert(r.err); return; }
+  let total=0;
+  for(const day of r.days){
+    const es=r.entries.filter(g=>dayKey(g.start)===day), mi=es.reduce((n,g)=>n+g.m,0)/1609.344;
+    const running=!!(S.tracker&&S.tracker.running)&&dayKey((S.tracker||{}).dayStart||0)===day;
+    if(!confirm(`Replace the log for ${dayName(new Date(day+"T12:00:00"))} with ${es.length} entries from the file (${mi.toFixed(1)} mi of driving)?`+(running?" This also ends today's timer.":"")+(r.bad.length?` ${r.bad.length} row(s) couldn't be read and are skipped.`:""))) continue;
+    const n=A.importDay(day,JSON.stringify(es)); if(n>0){ total+=n; LOG_DAY=day; }
+  }
+  if(total){ track("log-import"); LOG_EDIT=null; refresh(); renderLog(); toast(`Imported ${total} entries. Check the log, then Log trips in MPG.`); }
+};
 function setOvNow(k){ const day=dayKey(Date.now()), ov=Object.assign({},(S.overrides||{})[day]||{}); ov[k]=Date.now(); A.setOverride(day,JSON.stringify(ov)); refresh(); }
 $("ovStart").onclick=()=>{ if(confirm("Start work time now? This skips the 30-minute morning rule for today. You can change it in View and edit log.")){ setOvNow("ws"); track("override-start"); toast("Work time started."); } };
 $("ovEnd").onclick=()=>{ if(confirm("End work time now? From now until you get home is personal, skipping the 30-minute evening rule. You can change it in View and edit log.")){ setOvNow("we"); track("override-end"); toast("Work time ended. The drive home is personal."); } };

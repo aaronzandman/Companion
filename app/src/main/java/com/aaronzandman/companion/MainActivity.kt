@@ -158,6 +158,12 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_FORD) { web.evaluateJavascript("refresh()", null); return }
+        if (requestCode == REQ_CSV) {
+            val u = data?.data
+            if (resultCode != RESULT_OK || u == null) { web.evaluateJavascript("onCsv(null)", null); return }
+            val text = try { contentResolver.openInputStream(u)?.use { it.readBytes().take(600_000).toByteArray().toString(Charsets.UTF_8) } ?: "" } catch (_: Exception) { "" }
+            web.evaluateJavascript("onCsv(${JSONObject.quote(text)})", null); return
+        }
         if (requestCode != REQ_SHOT || resultCode != RESULT_OK || data == null) return
         val uris = ArrayList<Uri>()
         data.clipData?.let { cd -> for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri) } ?: data.data?.let { uris.add(it) }
@@ -441,6 +447,16 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun editSegment(start: String, json: String): Boolean =
             try { Tracker.editSegment(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
+        /** Lets you pick a .csv log (from Companion's email, or one made for you) to bring into the log window. Calls onCsv(text). */
+        @JavascriptInterface fun pickCsv() = runOnUiThread {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/vnd.ms-excel", "application/octet-stream"))
+            try { @Suppress("DEPRECATION") startActivityForResult(i, REQ_CSV) } catch (_: Exception) { web.evaluateJavascript("onCsv(null)", null) }
+        }
+        /** Replaces one day's entries with imported ones ([day] = yyyy-MM-dd; entries [{type,store,start,end,m,tag}]). */
+        @JavascriptInterface fun importDay(day: String, json: String): Int =
+            try { val n = Tracker.importDay(this@MainActivity, day, JSONArray(json)); if (n > 0 && !Tracker.isRunning(this@MainActivity)) TrackerService.stop(this@MainActivity); n } catch (_: Exception) { -1 }
+
         @JavascriptInterface fun editCurrent(start: String, json: String): Boolean =
             try { Tracker.editCurrent(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
         @JavascriptInterface fun addSegment(json: String): Boolean = try { Tracker.addSegment(this@MainActivity, JSONObject(json)) } catch (_: Exception) { false }
@@ -685,6 +701,7 @@ class MainActivity : Activity() {
         const val REQ_NOTIFY = 12
         const val REQ_BT = 13
         const val REQ_SHOT = 14
+        const val REQ_CSV = 22
         const val REQ_FORD = 15
         const val SITE = "https://aaronzandman.github.io/Route2/"
         const val OUTLOOK = "com.microsoft.office.outlook"
