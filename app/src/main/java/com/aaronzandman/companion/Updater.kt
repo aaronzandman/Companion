@@ -33,34 +33,51 @@ object Updater {
         return if (tag.isNotBlank() && f.exists() && newer(tag, BuildConfig.VERSION_NAME)) tag else null
     }
 
-    /** Checks GitHub (at most every [minGapMs]) and downloads a newer version. Returns a JSON result. Run off the main thread. */
-    fun check(c: Context, minGapMs: Long = 0L): JSONObject {
+    /** Checks GitHub (at most every [minGapMs]; 0 = check now) and downloads a newer version, reporting progress (0–100).
+     *  Only one check runs at a time, so a tap during the automatic check can't start a second download. Run off the main thread. */
+    @Synchronized
+    fun check(c: Context, minGapMs: Long = 0L, onProgress: ((Int) -> Unit)? = null): JSONObject {
         val res = JSONObject().put("current", BuildConfig.VERSION_NAME)
-        ready(c)?.let { return res.put("tag", it).put("ready", true) }
+        val have = ready(c)
         val last = Store.get(c, "updChecked", "0").toLongOrNull() ?: 0L
-        if (System.currentTimeMillis() - last < minGapMs) return res.put("skipped", true)
+        if (System.currentTimeMillis() - last < minGapMs) {
+            if (have != null) return res.put("tag", have).put("ready", true)
+            return res.put("skipped", true).put("tag", Store.get(c, "updLatest", ""))
+        }
         Store.put(c, "updChecked", System.currentTimeMillis().toString())
         return try {
             val con = URL(API).openConnection() as HttpURLConnection
             con.setRequestProperty("Accept", "application/vnd.github+json"); con.connectTimeout = 15_000; con.readTimeout = 15_000
+            if (con.responseCode == 403 || con.responseCode == 429) { Store.put(c, "updErr", "GitHub is busy; try again in a while"); return res.put("error", "busy") }
             val tag = JSONObject(con.inputStream.bufferedReader().readText()).optString("tag_name")
+            Store.put(c, "updLatest", tag); Store.put(c, "updOk", System.currentTimeMillis().toString()); Store.put(c, "updErr", "")
             res.put("tag", tag)
             if (!newer(tag, BuildConfig.VERSION_NAME)) return res.put("ready", false).put("upToDate", true)
-            if (download(c, tag)) res.put("ready", true) else res.put("ready", false).put("error", "download")
-        } catch (e: Exception) { res.put("error", e.javaClass.simpleName) }
+            if (have == tag) return res.put("ready", true)   // already downloaded
+            val err = download(c, tag, onProgress)
+            if (err == null) res.put("ready", true) else { Store.put(c, "updErr", err); res.put("ready", false).put("error", "download").put("why", err) }
+        } catch (e: Exception) { Store.put(c, "updErr", "No connection to GitHub"); res.put("error", e.javaClass.simpleName) }
     }
 
-    private fun download(c: Context, tag: String): Boolean {
+    /** Downloads the APK. Returns null when it's saved and verified, otherwise a short reason. */
+    private fun download(c: Context, tag: String, onProgress: ((Int) -> Unit)?): String? {
         val tmp = File(file(c).parentFile, "download.tmp")
         try {
             val con = URL(APK).openConnection() as HttpURLConnection
             con.instanceFollowRedirects = true; con.connectTimeout = 20_000; con.readTimeout = 60_000
-            con.inputStream.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
-            if (!sameSigner(c, tmp)) { tmp.delete(); return false }
+            if (con.responseCode !in 200..299) return "GitHub answered ${con.responseCode}"
+            val total = con.contentLengthLong; var got = 0L; var lastPct = -1
+            con.inputStream.use { inp -> tmp.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                while (true) { val n = inp.read(buf); if (n < 0) break; out.write(buf, 0, n); got += n
+                    if (total > 0) { val pct = (got * 100 / total).toInt(); if (pct >= lastPct + 5) { lastPct = pct; onProgress?.invoke(pct) } } }
+            } }
+            if (total > 0 && got != total) { tmp.delete(); return "The download stopped early" }
+            if (!sameSigner(c, tmp)) { tmp.delete(); return "The file didn't pass Companion's signature check" }
             tmp.renameTo(file(c).also { it.delete() })
             Store.put(c, "updReady", tag)
-            return true
-        } catch (_: Exception) { tmp.delete(); return false }
+            return null
+        } catch (e: Exception) { tmp.delete(); return "The download failed (${e.javaClass.simpleName})" }
     }
 
     /** True only if the downloaded file is Companion, signed with the same key as the installed app. */

@@ -38,6 +38,9 @@ button{font:inherit}
 .item b{display:block}
 .meta{font-size:13px;color:var(--muted)}
 .pri{display:inline-block;border-radius:4px;padding:0 6px;color:#fff;font-size:12px;font-weight:700;background:#6B7785}
+.updinfo{font-size:14px;line-height:1.6;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.updinfo .ok{color:#1F6B4F;font-weight:700}.updinfo .warn2{color:#B45309;font-weight:700}
+@media (prefers-color-scheme:dark){.updinfo .ok{color:#7FD3A8}.updinfo .warn2{color:#FBBF24}}
 .age{display:inline-block;border-radius:4px;padding:0 6px;font-size:12px;font-weight:700;border:1px solid transparent}
 .age.g{background:#DDF3E4;color:#14532D;border-color:#9AD3AE}.age.y{background:#FFF4BF;color:#5C4400;border-color:#E9CF55}
 .age.o{background:#FFE0C2;color:#7A3500;border-color:#F0A060}.age.r{background:#B3261E;color:#fff}
@@ -329,6 +332,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <h2>About</h2>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
+      <div class="updinfo" id="updInfo"></div>
       <button class="btn sec" id="updBtn">Check for updates</button>
       <button class="btn sec" id="permCheckBtn">Check permissions</button>
       <button class="btn sec" id="appSet">Android app settings</button>
@@ -553,7 +557,7 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail(); renderMpg(); renderOil(); renderAuto();
+  renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
@@ -1131,17 +1135,34 @@ function onObdTest(r){
   $("obdLog").textContent=(r.ok?`✓ Odometer: ${fmtMi(r.miles)} miles\n\n`:"✗ Couldn't read the odometer. Make sure the van is on and the adapter is plugged in.\n\n")+(r.log||"");
   refresh();
 }
-let manualUpd=false;
-$("updBtn").onclick=()=>{ manualUpd=true; toast("Checking…"); A.checkUpdate(true); };
+// Version line: "1.11.2.38" → "1.11.2 (build 38)"
+const verTxt=v=>{ const p=String(v||"").replace(/^v/,"").split("."); return p.length>3?`${p.slice(0,3).join(".")} (build ${p[3]})`:p.join("."); };
+let UPD_BUSY=false;
+function renderUpd(){
+  const u=S.upd||{}, have=S.version||"", latest=u.latest||"";
+  let status="";
+  if(UPD_BUSY) status="";
+  else if(u.ready) status=`<span class="ok">Ready to install: ${esc(verTxt(u.ready))}</span>`;
+  else if(latest && !newer(latest,have)) status=`<span class="ok">✓ Up to date</span>`;
+  else if(latest && newer(latest,have)) status=`<span class="warn2">Newer version available</span>`;
+  $("updInfo").innerHTML=`<div>This phone: <b>${esc(verTxt(have))}</b></div><div>Available on GitHub: <b>${latest?esc(verTxt(latest)):"not checked yet"}</b>${u.checked?` <span class="hint">· checked ${esc(when(u.checked))}</span>`:""}</div>`+
+    (status?`<div>${status}</div>`:"")+(u.err&&!UPD_BUSY?`<div class="hint">Last problem: ${esc(u.err)}</div>`:"")+
+    (u.ready&&!UPD_BUSY?`<button class="btn" style="margin-top:8px" onclick="A.installUpdate()">Install ${esc(verTxt(u.ready))} now</button>`:"");
+}
+$("updBtn").onclick=()=>{ if(UPD_BUSY) return; UPD_BUSY=true; $("updBtn").disabled=true; $("updBtn").textContent="Checking GitHub…"; track("update-check"); A.checkUpdate(true); };
+window.onUpdProgress=p=>{ $("updBtn").textContent=`Downloading update… ${p}%`; };
 function newer(a,b){ const x=String(a).replace(/^v/,"").split(".").map(Number), y=String(b).split(".").map(Number); for(let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)>(y[i]||0); } return false; }
 // Updates: Companion checks GitHub every 6 hours (and when you start your day), downloads a newer version in the
 // background, makes sure it's signed with Companion's own key, then offers one-tap install.
 function onUpdate(r){
-  const u=$("upd");
-  const manual=manualUpd; manualUpd=false;
-  if(r.ready && r.tag){ u.innerHTML=`<b>Companion ${esc(r.tag.replace(/^v/,""))} is ready to install.</b> You have ${esc(S.version)}. Your data stays.<button class="btn" onclick="A.installUpdate()">Install now</button>`; u.classList.add("show"); return; }
-  if(r.error){ if(manual) toast(r.error==="download"?"The update didn't download completely. Try again later.":"Couldn't check for updates."); return; }
-  u.classList.remove("show"); if(manual) toast(r.skipped?"Checked recently. You have the newest version.":"You have the newest version.");
+  const u=$("upd"), manual=!!r.manual;
+  if(manual){ UPD_BUSY=false; $("updBtn").disabled=false; $("updBtn").textContent="Check for updates"; }
+  refresh();
+  if(r.ready && r.tag){ u.innerHTML=`<b>Companion ${esc(verTxt(r.tag))} is ready to install.</b> You have ${esc(verTxt(S.version))}. Your data stays.<button class="btn" onclick="A.installUpdate()">Install now</button>`; u.classList.add("show");
+    if(manual) toast(`Downloaded ${verTxt(r.tag)}. Tap Install now.`); return; }
+  if(r.error){ if(manual) toast(r.error==="download"?`Couldn't download ${verTxt(r.tag)}: ${r.why||"try again"}.`:r.error==="busy"?"GitHub is busy right now. Try again in a while.":"Couldn't reach GitHub. Check your connection."); return; }
+  u.classList.remove("show");
+  if(manual) toast(`You're up to date: ${verTxt(S.version)} is the newest version.`);
 }
 const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings"].includes(tab)) showTab(tab);
 setInterval(()=>{ if(!document.hidden) refresh(); },5000);

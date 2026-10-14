@@ -235,6 +235,8 @@ class MainActivity : Activity() {
                     .put("maker", Build.MANUFACTURER.lowercase()))
                 .put("importedAll", Store.get(c, "importedAll", "").toLongOrNull() ?: 0L)
                 .put("historySent", Store.get(c, "historySent", "").toLongOrNull() ?: 0L)
+                .put("upd", JSONObject().put("latest", Store.get(c, "updLatest", "")).put("checked", Store.get(c, "updOk", "0").toLongOrNull() ?: 0L)
+                    .put("err", Store.get(c, "updErr", "")).put("ready", Updater.ready(c) ?: ""))
                 .put("callsExported", Store.get(c, "callsExported", "").toLongOrNull() ?: 0L)
                 .put("mpgDone", try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() })
                 .put("odo", Obd.log(c))
@@ -599,7 +601,9 @@ class MainActivity : Activity() {
         /** Checks GitHub for a newer Companion and downloads it; calls onUpdate(result). [force] skips the 6-hour wait. */
         @JavascriptInterface fun checkUpdate(force: Boolean) {
             Thread {
-                val r = Updater.check(this@MainActivity, if (force) 0L else 6 * 3600_000L)
+                val r = Updater.check(this@MainActivity, if (force) 0L else 6 * 3600_000L) { pct ->
+                    if (force) runOnUiThread { web.evaluateJavascript("window.onUpdProgress&&onUpdProgress($pct)", null) } }
+                r.put("manual", force)
                 runOnUiThread { web.evaluateJavascript("onUpdate($r)", null) }
             }.start()
         }
