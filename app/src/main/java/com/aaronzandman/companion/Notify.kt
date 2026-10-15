@@ -99,6 +99,18 @@ object Notify {
     const val CH_STANDBY = "standby"
     const val ID_STANDBY = 5
     /** Automatic start/end messages. With [tapStarts], tapping opens Companion and starts (or resumes) the day. */
+    /** "New calls — sync SAP": opens the SAP import so it refreshes. Best-effort; you tap it. */
+    fun syncSap(c: Context) {
+        channels(c)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val i = Intent(c, SapActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(c, 94, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = NotificationCompat.Builder(c, CH_UPDATE).setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle("New dispatch — sync SAP").setContentText("Tap to pull the latest calls from SAP into your list.")
+            .setContentIntent(pi).setAutoCancel(true)
+        try { NotificationManagerCompat.from(c).notify(ID_AUTODAY + 3, b.build()) } catch (_: SecurityException) {}
+    }
+
     fun autoDay(c: Context, title: String, text: String, tapStarts: Boolean) {
         DiagLog.w(c, "NOTE", "notification: $title — $text")
         channels(c)

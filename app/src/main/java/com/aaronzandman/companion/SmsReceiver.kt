@@ -16,7 +16,10 @@ class SmsReceiver : BroadcastReceiver() {
             if (filter.isNotEmpty() && !sender.contains(filter, ignoreCase = true)) continue
             val body = parts.joinToString("") { it.messageBody ?: "" }
             val found = DispatchParser.parse(body, parts.first().timestampMillis, sender)
-            if (found.isNotEmpty() && Store.addDispatches(ctx, found) > 0) Notify.newDispatch(ctx, found)
+            if (found.isNotEmpty() && Store.addDispatches(ctx, found) > 0) {
+                Notify.newDispatch(ctx, found)
+                if (Sap.configured(ctx) && Store.get(ctx, "sapAutoSms", "1") == "1") Notify.syncSap(ctx)
+            }
         }
     }
 }

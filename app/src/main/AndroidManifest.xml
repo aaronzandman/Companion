@@ -69,6 +69,7 @@
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity android:name=".SapActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
         <receiver
             android:name=".SmsReceiver"
             android:exported="true"

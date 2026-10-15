@@ -241,6 +241,14 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
       <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">Each new dispatch text offers Reroute or Keep my route and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
+      <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Calls from SAP</b>
+        <div class="hint" id="sapHint" style="margin:2px 0 6px">Sign in once and pull your calls straight from SAP — full descriptions and real dates. Stays on this phone.</div>
+        <div class="hint" style="margin-top:6px"><b>Districts to import</b> (Work Center)</div>
+        <div id="sapDist" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0"></div>
+        <div class="hint" style="margin-top:6px"><b>Order types to import</b></div>
+        <div id="sapTypes" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0"></div>
+        <label class="set" style="padding:6px 0"><span><b>Offer to sync when a dispatch text arrives</b><br><span class="hint">Shows a “sync SAP” notification; tap to pull the new call.</span></span><input type="checkbox" class="sw" id="sapAutoSms"></label>
+        <button class="btn" id="sapOpen" style="margin-top:4px">Open SAP import</button></div>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
         <div class="hint" id="importHint"></div>
         <button class="btn sec" id="importAll">Import past dispatch texts</button>
@@ -383,7 +391,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.16.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.17.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -624,7 +632,7 @@ function render(){
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
 
-  renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd(); maybeAskOdo();
+  renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd(); maybeAskOdo(); renderSap();
   // settings
   const st=S.settings||{};
   if(document.activeElement!==$("sender")) $("sender").value=st.senderFilter||"";
@@ -1142,6 +1150,22 @@ $("autoDevRefresh").onclick=()=>{ if(!(S.perm||{}).bt){ A.askBluetooth(); return
 $("autoBgBtn").onclick=()=>{ alert("On the next screen choose “Allow all the time”. Companion only uses it to start the timer when your phone connects to the van; location still isn't sent anywhere."); A.askBgLocation(); };
 $("autoBtDrive").onchange=e=>{ if(e.target.checked&&!(S.perm||{}).bt) A.askBluetooth(); A.setSetting("autoBtDrive",e.target.checked?"1":"0"); track(e.target.checked?"bt-drive-on":"bt-drive-off"); refresh(); };
 let VAN_FINDING=false;
+const SAP_TYPE_NAMES={ZSM4:"Incident",ZSM3:"Project",ZSM2:"Request",ZSM7:"Other"};
+function chip(label,on,click){ const b=document.createElement("button"); b.textContent=label; b.className="btn sec";
+  b.style.cssText="width:auto;margin:0;padding:6px 12px;"+(on?"background:var(--road);color:#fff;border-color:var(--road)":""); b.onclick=click; return b; }
+function renderSap(){ const sp=S.sap||{}; const dsel=new Set(sp.districts||[]), tsel=new Set(sp.types||[]);
+  $("sapAutoSms").checked = sp.autoSms!==false;
+  const dd=$("sapDist"); dd.innerHTML="";
+  const seen=(sp.seenDist&&sp.seenDist.length)?sp.seenDist:[...dsel];
+  if(!seen.length){ dd.innerHTML='<span class="hint">Run an import once and your districts (20E, 20F…) will appear here to pick.</span>'; }
+  else seen.forEach(d=>dd.appendChild(chip(d,dsel.has(d),()=>{ dsel.has(d)?dsel.delete(d):dsel.add(d); A.setSetting("sapDistricts",[...dsel].join(",")); refresh(); })));
+  const tt=$("sapTypes"); tt.innerHTML="";
+  const types=[...new Set([...Object.keys(SAP_TYPE_NAMES),...(sp.seenTypes||[])])];
+  types.forEach(t=>tt.appendChild(chip(`${t}${SAP_TYPE_NAMES[t]?" · "+SAP_TYPE_NAMES[t]:""}`,tsel.has(t),()=>{ tsel.has(t)?tsel.delete(t):tsel.add(t); A.setSetting("sapTypes",[...tsel].join(",")); refresh(); })));
+  $("sapHint").textContent = sp.lastImport ? `Last SAP import ${when(sp.lastImport)}. Pulls full descriptions and real dates; stays on this phone.` : "Sign in once and pull your calls straight from SAP — full descriptions and real dates. Stays on this phone.";
+}
+$("sapOpen").onclick=()=>{ track("sap-open"); A.openSap(); };
+$("sapAutoSms").onchange=e=>{ A.setSetting("sapAutoSms",e.target.checked?"1":"0"); refresh(); };
 $("btIcon").onclick=()=>{ const st=S.settings||{}; alert(st.vanSession ? `vLinker connected\n${st.engineOn?"Engine running":"Engine off"}${st.vanVolts?" · "+st.vanVolts+" V":""}` : "Not connected to the vLinker."); };
 $("vanHold").onchange=e=>{ A.setSetting("vanHold",e.target.checked?"1":"0"); track(e.target.checked?"van-hold-on":"van-hold-off"); if(e.target.checked) toast("Companion will connect to the vLinker when your van checks in."); refresh(); };
 function renderBtIcon(){ const st=S.settings||{}, b=$("btIcon");
