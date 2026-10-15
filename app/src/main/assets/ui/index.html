@@ -248,7 +248,10 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <div class="hint" style="margin-top:6px"><b>Order types to import</b></div>
         <div id="sapTypes" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0"></div>
         <label class="set" style="padding:6px 0"><span><b>Offer to sync when a dispatch text arrives</b><br><span class="hint">Shows a “sync SAP” notification; tap to pull the new call.</span></span><input type="checkbox" class="sw" id="sapAutoSms"></label>
-        <button class="btn" id="sapOpen" style="margin-top:4px">Open SAP import</button></div>
+        <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">SAP web address</summary>
+          <div class="row" style="gap:6px;align-items:center;margin-top:4px"><input type="text" id="sapUrl" style="flex:1;min-width:0" placeholder="SAP / Fiori address"><button class="btn sec" id="sapUrlSave" style="width:auto;margin:0;padding:8px 12px">Save</button></div>
+          <div class="hint" style="margin-top:2px">Default is the Publix mobile SAP launchpad. Change it only if yours differs.</div></details>
+        <button class="btn" id="sapOpen" style="margin-top:6px">Open SAP import</button></div>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Past dispatch texts</b>
         <div class="hint" id="importHint"></div>
         <button class="btn sec" id="importAll">Import past dispatch texts</button>
@@ -391,7 +394,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.17.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.18.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1162,8 +1165,10 @@ function renderSap(){ const sp=S.sap||{}; const dsel=new Set(sp.districts||[]), 
   const tt=$("sapTypes"); tt.innerHTML="";
   const types=[...new Set([...Object.keys(SAP_TYPE_NAMES),...(sp.seenTypes||[])])];
   types.forEach(t=>tt.appendChild(chip(`${t}${SAP_TYPE_NAMES[t]?" · "+SAP_TYPE_NAMES[t]:""}`,tsel.has(t),()=>{ tsel.has(t)?tsel.delete(t):tsel.add(t); A.setSetting("sapTypes",[...tsel].join(",")); refresh(); })));
+  if(document.activeElement!==$("sapUrl")) $("sapUrl").value=sp.url||"";
   $("sapHint").textContent = sp.lastImport ? `Last SAP import ${when(sp.lastImport)}. Pulls full descriptions and real dates; stays on this phone.` : "Sign in once and pull your calls straight from SAP — full descriptions and real dates. Stays on this phone.";
 }
+$("sapUrlSave").onclick=()=>{ A.setSetting("sapUrl",$("sapUrl").value.trim()); toast("SAP address saved."); refresh(); };
 $("sapOpen").onclick=()=>{ track("sap-open"); A.openSap(); };
 $("sapAutoSms").onchange=e=>{ A.setSetting("sapAutoSms",e.target.checked?"1":"0"); refresh(); };
 $("btIcon").onclick=()=>{ const st=S.settings||{}; alert(st.vanSession ? `vLinker connected\n${st.engineOn?"Engine running":"Engine off"}${st.vanVolts?" · "+st.vanVolts+" V":""}` : "Not connected to the vLinker."); };

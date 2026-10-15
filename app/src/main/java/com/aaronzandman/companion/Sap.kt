@@ -22,6 +22,10 @@ object Sap {
         "ZSM7" to "Other"
     )
 
+    const val DEFAULT_URL = "https://flpassociateapps.publix.com/sap/bc/ui2/flp"
+    const val MONITOR = "#ZFIELDTECH-monitor"   // the Service Technician team call list
+    fun url(c: Context) = Store.get(c, "sapUrl", "").ifBlank { DEFAULT_URL }
+
     fun districts(c: Context) = Store.get(c, "sapDistricts", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     fun types(c: Context) = Store.get(c, "sapTypes", "ZSM4").split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
@@ -94,5 +98,6 @@ object Sap {
     }
 
     fun seenDistricts(c: Context): JSONArray = JSONArray(Store.get(c, "sapSeenDist", "").split(",").filter { it.isNotBlank() })
-    fun configured(c: Context) = Store.get(c, "sapUrl", "").isNotBlank()
+    /** True once a SAP import has succeeded (so the SMS sync prompt only shows after setup). */
+    fun configured(c: Context) = (Store.get(c, "sapLastImport", "0").toLongOrNull() ?: 0L) > 0L
 }
