@@ -242,7 +242,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">Each new dispatch text offers Reroute or Keep my route and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Calls from SAP</b>
-        <div class="hint" id="sapHint" style="margin:2px 0 6px">Sign in once and pull your calls straight from SAP — full descriptions and real dates. Stays on this phone.</div>
+        <div class="hint" id="sapHint" style="margin:2px 0 6px">Sign in once; SAP becomes your call list — it replaces everything with your current SAP calls (completed ones drop off). Stays on this phone.</div>
         <div class="hint" style="margin-top:6px"><b>Districts to import</b> (Work Center)</div>
         <div id="sapDist" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0"></div>
         <div class="hint" style="margin-top:6px"><b>Order types to import</b></div>
@@ -394,7 +394,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.18.2).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.19.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1166,7 +1166,7 @@ function renderSap(){ const sp=S.sap||{}; const dsel=new Set(sp.districts||[]), 
   const types=[...new Set([...Object.keys(SAP_TYPE_NAMES),...(sp.seenTypes||[])])];
   types.forEach(t=>tt.appendChild(chip(`${t}${SAP_TYPE_NAMES[t]?" · "+SAP_TYPE_NAMES[t]:""}`,tsel.has(t),()=>{ tsel.has(t)?tsel.delete(t):tsel.add(t); A.setSetting("sapTypes",[...tsel].join(",")); refresh(); })));
   if(document.activeElement!==$("sapUrl")) $("sapUrl").value=sp.url||"";
-  $("sapHint").textContent = sp.lastImport ? `Last SAP import ${when(sp.lastImport)}. Pulls full descriptions and real dates; stays on this phone.` : "Sign in once and pull your calls straight from SAP — full descriptions and real dates. Stays on this phone.";
+  $("sapHint").textContent = sp.lastImport ? `Last SAP import ${when(sp.lastImport)}. Pulls full descriptions and real dates; stays on this phone.` : "Sign in once; SAP becomes your call list — it replaces everything with your current SAP calls (completed ones drop off). Stays on this phone.";
 }
 $("sapUrlSave").onclick=()=>{ A.setSetting("sapUrl",$("sapUrl").value.trim()); toast("SAP address saved."); refresh(); };
 $("sapOpen").onclick=()=>{ track("sap-open"); A.openSap(); };

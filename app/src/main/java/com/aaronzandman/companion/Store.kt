@@ -34,6 +34,14 @@ object Store {
       }
     }
 
+    /** Replaces the whole call list with [list] (newest first). Used by the SAP import, which is the full current list. */
+    fun replaceDispatches(c: Context, list: List<JSONObject>): Int = synchronized(lock) {
+        val out = JSONArray()
+        list.sortedByDescending { it.optLong("receivedAt") }.take(5000).forEach { out.put(it) }
+        put(c, "dispatches", out.toString())
+        list.size
+    }
+
     fun updateDispatches(c: Context, fn: (JSONObject) -> JSONObject?) = synchronized(lock) {
         val cur = dispatches(c); val out = JSONArray()
         for (i in 0 until cur.length()) fn(cur.getJSONObject(i))?.let { out.put(it) }

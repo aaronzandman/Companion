@@ -97,6 +97,15 @@ object Sap {
         return Pair(all.size, added)
     }
 
+    /** Replaces the entire call list with the filtered SAP orders (the current, full list). Returns Pair(kept, totalSeen). */
+    fun replace(c: Context, allOrders: List<JSONObject>): Pair<Int, Int> {
+        remember(c, allOrders)
+        val keep = filtered(c, allOrders)
+        Store.replaceDispatches(c, keep)
+        Store.put(c, "sapLastImport", System.currentTimeMillis().toString())
+        return Pair(keep.size, allOrders.size)
+    }
+
     fun seenDistricts(c: Context): JSONArray = JSONArray(Store.get(c, "sapSeenDist", "").split(",").filter { it.isNotBlank() })
     /** True once a SAP import has succeeded (so the SMS sync prompt only shows after setup). */
     fun configured(c: Context) = (Store.get(c, "sapLastImport", "0").toLongOrNull() ?: 0L) > 0L

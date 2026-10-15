@@ -56,7 +56,7 @@ class SapActivity : Activity() {
         root.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         bigBtn = btn("Go to my team call list", true) { toTeamList() }
         root.addView(bigBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(2)) })
-        root.addView(btn("Done", false) { finish() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(8)) })
+        root.addView(btn("Done", false) { commit(); finish() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(8)) })
         setContentView(root)
 
         setupWeb()
@@ -95,22 +95,40 @@ class SapActivity : Activity() {
         for (d in longArrayOf(1500, 3000, 5000, 8000, 12000)) h.postDelayed({ web.evaluateJavascript(AUTO, null) }, d)
     }
 
+    // All orders seen this session (deduped by order number), before filtering. The whole call list is replaced from this.
+    private val buffer = LinkedHashMap<String, JSONObject>()
+    @Volatile private var committed = false
+
     inner class Bridge {
         @JavascriptInterface fun cap(json: String) {
             try {
                 val res = JSONObject(json).optString("res")
                 if (!res.contains("OrderId")) return
-                val (f, a) = Sap.importBody(this@SapActivity, res)
-                if (f > 0) { found += f; added += a; runOnUiThread { updateStatus() } }
+                var changed = false
+                for (o in Sap.parse(res)) { val k = o.optString("order"); if (!buffer.containsKey(k)) changed = true; buffer[k] = o }
+                if (changed) {
+                    found = buffer.size; added = Sap.filtered(this@SapActivity, buffer.values.toList()).size
+                    // Auto-finish once the data stops arriving (hands-off flow); replaces the whole list.
+                    h.removeCallbacksAndMessages("idle")
+                    runOnUiThread { updateStatus(); h.postAtTime({ commit() }, "idle", android.os.SystemClock.uptimeMillis() + 7000) }
+                }
             } catch (_: Exception) {}
         }
+    }
+
+    /** Replaces the entire call list with this session's SAP orders (filtered). Safe: never wipes on an empty pull. */
+    private fun commit() {
+        if (committed || buffer.isEmpty()) return
+        committed = true
+        val (kept, seen) = Sap.replace(this, buffer.values.toList())
+        runOnUiThread { status.text = "Done — your call list is now the $kept call(s) from SAP ($seen seen). Tap Done."; Toast.makeText(this, "Call list replaced: $kept calls", Toast.LENGTH_LONG).show() }
     }
 
     private fun updateStatus() {
         val d = Sap.districts(this); val t = Sap.types(this)
         val filt = (if (d.isEmpty()) "all districts" else d.sorted().joinToString("/")) + " · " + (if (t.isEmpty()) "all types" else t.sorted().joinToString("/"))
         status.text = if (found == 0) "Sign in, then open your call list. Importing automatically · $filt"
-            else "Imported $added new call(s) ($found seen) · $filt"
+            else "$added call(s) to keep ($found seen) · $filt · replaces your whole list when done"
     }
 
     override fun onPause() { super.onPause(); CookieManager.getInstance().flush() }
