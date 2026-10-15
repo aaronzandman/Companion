@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -28,6 +30,7 @@ class SapActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var status: TextView
     private lateinit var bigBtn: Button
+    private val h = Handler(Looper.getMainLooper())
 
     private enum class Mode { SIGN_IN, IMPORTING, DONE }
     @Volatile private var mode = Mode.SIGN_IN
@@ -51,7 +54,7 @@ class SapActivity : Activity() {
         root.addView(status)
         web = WebView(this)
         root.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        bigBtn = btn("Go to my team call list", true) { web.loadUrl(base() + Sap.MONITOR); mode = Mode.IMPORTING; updateStatus() }
+        bigBtn = btn("Go to my team call list", true) { toTeamList() }
         root.addView(bigBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(2)) })
         root.addView(btn("Done", false) { finish() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(8), dp(2), dp(8), dp(8)) })
         setContentView(root)
@@ -73,9 +76,23 @@ class SapActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String?, f: android.graphics.Bitmap?) { web.evaluateJavascript(HOOK, null) }
             override fun onPageFinished(v: WebView, u: String?) {
                 web.evaluateJavascript(HOOK, null)
-                if (u != null && u.contains("flpassociateapps.publix.com") && u.contains("#")) { mode = Mode.IMPORTING; runOnUiThread { bigBtn.visibility = Button.VISIBLE; updateStatus() } }
+                if (u != null && u.contains("flpassociateapps.publix.com")) {
+                    mode = Mode.IMPORTING; runOnUiThread { bigBtn.visibility = Button.VISIBLE; updateStatus() }
+                    // Signed in and on the launchpad: open the team call list on its own, once.
+                    if (!autoStarted && !u.contains("ZFIELDTECH")) { autoStarted = true; h.postDelayed({ toTeamList() }, 1500) }
+                }
             }
         }
+    }
+
+    private var autoStarted = false
+    /** Opens the Service Technician monitor and auto-taps Team Queue (and dismisses the truncation alert). */
+    private fun toTeamList() {
+        mode = Mode.IMPORTING
+        if (!web.url.orEmpty().contains("ZFIELDTECH")) web.loadUrl(base() + Sap.MONITOR)
+        runOnUiThread { bigBtn.text = "Loading team calls…"; updateStatus() }
+        // The app loads async; keep nudging the Team Queue tile until the data arrives.
+        for (d in longArrayOf(1500, 3000, 5000, 8000, 12000)) h.postDelayed({ web.evaluateJavascript(AUTO, null) }, d)
     }
 
     inner class Bridge {
@@ -97,6 +114,7 @@ class SapActivity : Activity() {
     }
 
     override fun onPause() { super.onPause(); CookieManager.getInstance().flush() }
+    override fun onDestroy() { h.removeCallbacksAndMessages(null); super.onDestroy() }
     override fun onBackPressed() { if (web.canGoBack() && mode == Mode.SIGN_IN) web.goBack() else super.onBackPressed() }
 
     private fun btn(t: String, primary: Boolean, on: () -> Unit) = Button(this).apply {
@@ -107,6 +125,24 @@ class SapActivity : Activity() {
     }
 
     companion object {
+        /** Taps the Team Queue tile and dismisses the "truncated" alert; the data loads behind it and is captured. */
+        private val AUTO = """
+          (function(){ if(window.__sapauto) return; window.__sapauto=true; var n=0;
+            var iv=setInterval(function(){ n++;
+              try{ Array.prototype.slice.call(document.querySelectorAll('button,.sapMBtn,.sapMBtnContent,bdi')).forEach(function(b){ if(((b.innerText||b.textContent)||'').trim()==='OK'){ (b.closest('.sapMBtn')||b).click(); } }); }catch(e){}
+              if(!window.__teamTapped){ try{
+                var nodes=document.querySelectorAll('bdi,span,div,a');
+                for(var i=0;i<nodes.length;i++){ var el=nodes[i]; var t=((el.innerText||el.textContent)||'').trim();
+                  if(/team\s*que/i.test(t) && t.length<40 && el.offsetParent!==null){
+                    var c=el.closest('[role="button"],.sapMGT,.sapFCard,.sapMObjectListItem,li,div[tabindex]')||el;
+                    try{ c.click(); }catch(e){}
+                    try{ ['pointerdown','mousedown','mouseup','click'].forEach(function(ev){ c.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true})); }); }catch(e){}
+                    window.__teamTapped=true; break; } } }catch(e){} }
+              if(n>20) clearInterval(iv);
+            },1000);
+          })();
+        """.trimIndent()
+
         private val HOOK = """
           (function(){ if(window.__sapcap) return; window.__sapcap=true; var B=window.__SAP;
             function send(t){ try{ if(t&&t.indexOf('OrderId')>=0) B&&B.cap(JSON.stringify({res:t})); }catch(e){} }
