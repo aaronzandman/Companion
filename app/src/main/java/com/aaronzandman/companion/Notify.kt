@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import org.json.JSONObject
 
 object Notify {
+    /** Stay silent until the day/driving has started: no notifications appear beforehand. */
+    private fun quiet(c: Context) = !Tracker.isRunning(c)
     const val CH_DISPATCH = "dispatch"
     const val CH_TRACKER = "tracker"
     const val ID_TRACKER = 1
@@ -23,6 +25,7 @@ object Notify {
 
     /** "Update ready" notification; tapping it opens Companion's install prompt. */
     fun updateReady(c: Context, tag: String) {
+        if (quiet(c)) return   // nothing shows until the day starts
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val i = Intent(c, MainActivity::class.java).putExtra("install", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -49,6 +52,7 @@ object Notify {
     }
 
     fun newDispatch(c: Context, found: List<JSONObject>) {
+        if (quiet(c)) return   // nothing shows until the day starts
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
@@ -101,6 +105,7 @@ object Notify {
     /** Automatic start/end messages. With [tapStarts], tapping opens Companion and starts (or resumes) the day. */
     /** "New calls — sync SAP": opens the SAP import so it refreshes. Best-effort; you tap it. */
     fun syncSap(c: Context) {
+        if (quiet(c)) return   // nothing shows until the day starts
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val i = Intent(c, SapActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -112,6 +117,7 @@ object Notify {
     }
 
     fun autoDay(c: Context, title: String, text: String, tapStarts: Boolean) {
+        if (quiet(c)) return   // nothing shows until the day starts
         DiagLog.w(c, "NOTE", "notification: $title — $text")
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return

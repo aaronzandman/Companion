@@ -1,5 +1,6 @@
 package com.aaronzandman.companion
 
+import android.content.Context
 import android.util.Base64
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -38,6 +39,29 @@ object DispatchParser {
         "SMS", "", "", "", d.optString("priority"), "P" + d.optString("store"), "", "", "",
         d.optString("order"), d.optString("description"), "", "SMS", "", d.optString("store")
     ).joinToString("\t")
+
+    const val SITE = "https://aaronzandman.github.io/Route2/"
+
+    /** 15-column row carrying the SAP due date + real status, so the Planner's age (from the due date) works. */
+    fun plannerRowSap(d: JSONObject): String {
+        val dueMs = d.optLong("due", 0L)
+        var date = ""; var time = ""
+        if (dueMs > 0) { val dt = java.util.Date(dueMs)
+            date = java.text.SimpleDateFormat("M/d/yyyy", java.util.Locale.US).format(dt)
+            time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(dt) }
+        return listOf(d.optString("otype", "ZSM4"), "", date, time, d.optString("priority"), "P" + d.optString("store"),
+            "", "", d.optString("serial", ""), d.optString("order"), d.optString("description"),
+            d.optString("workCenter", ""), d.optString("status", "Dispatched"), "", d.optString("store")).joinToString("\t")
+    }
+
+    /** A Route Planner link that REPLACES the whole list with the current calls (used by the SAP import). */
+    fun overrideLink(c: Context): String? {
+        val all = Store.dispatches(c); if (all.length() == 0) return null
+        val rows = (0 until all.length()).map { plannerRowSap(all.getJSONObject(it)) }
+        val o = JSONObject().put("v", 1).put("src", "companion").put("ov", 1).put("c", rows.joinToString("\n"))
+        try { val u = JSONObject(Store.get(c, "uid", "")); if (Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(u.optString("i"))) o.put("u", u) } catch (_: Exception) {}
+        return plannerLinkJson(SITE, Store.get(c, "edition", "VA"), o)
+    }
 
     /** Link that opens the Route Planner and offers to ADD these calls (handoff format, data after #, never sent to a server). */
     fun plannerLink(site: String, edition: String, rows: List<String>, uid: JSONObject? = null, extra: JSONObject? = null): String {

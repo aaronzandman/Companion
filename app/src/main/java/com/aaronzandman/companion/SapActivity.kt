@@ -2,6 +2,8 @@ package com.aaronzandman.companion
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -121,7 +123,9 @@ class SapActivity : Activity() {
         if (committed || buffer.isEmpty()) return
         committed = true
         val (kept, seen) = Sap.replace(this, buffer.values.toList())
-        runOnUiThread { status.text = "Done — your call list is now the $kept call(s) from SAP ($seen seen). Tap Done."; Toast.makeText(this, "Call list replaced: $kept calls", Toast.LENGTH_LONG).show() }
+        runOnUiThread { status.text = "Done — $kept call(s) from SAP ($seen seen). Opening Route Planner…"; Toast.makeText(this, "Call list replaced: $kept calls", Toast.LENGTH_LONG).show() }
+        // Hand the new list straight to the Route Planner, replacing its list too.
+        try { DispatchParser.overrideLink(this)?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (_: Exception) {}
     }
 
     private fun updateStatus() {
