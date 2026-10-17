@@ -51,29 +51,27 @@ object Notify {
         }
     }
 
-    /** "2h 05m", "47 min", "3 min". */
-    private fun dur(ms: Long): String {
-        val m = (ms / 60_000L).toInt()
-        return if (m >= 60) "${m / 60}h ${"%02d".format(m % 60)}m" else "$m min"
+    /** Decimal hours for SAP, leading zero dropped: 15 min → ".25hr", 30 min → ".50hr", 65 min → "1.08hr". */
+    private fun hr(ms: Long): String {
+        val h = ms / 3_600_000.0
+        val s = "%.2f".format(h)
+        return (if (h < 1.0) s.removePrefix("0") else s) + "hr"
     }
 
     /**
-     * While parked at a store: the time there so far and the drive that got you there — the two numbers you copy into
-     * SAP when you log labor and travel. Updates in place (same ID) on each location fix; cleared when you leave.
+     * While parked at a store: the time there so far and the travel to get here — the two numbers you copy into SAP.
+     * Travel is the whole door-to-door gap since you left the last store/home (drives plus any stop between, e.g. fuel).
+     * Updates in place (same ID) on each location fix; cleared when you leave.
      */
-    fun atStore(c: Context, store: String, hereMs: Long, driveMs: Long, driveMeters: Double) {
+    fun atStore(c: Context, store: String, hereMs: Long, travelMs: Long) {
         if (quiet(c)) return
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val city = Stores.byNum(c, store)?.city?.let { " – $it" } ?: ""
-        val title = "At store $store$city · ${dur(hereMs)} here"
-        val drive = if (driveMs >= 60_000L) {
-            val mi = if (driveMeters > 0) " · %.1f mi".format(driveMeters / 1609.344) else ""
-            "Drove ${dur(driveMs)} to get here$mi"
-        } else "No drive recorded just before this stop"
-        val text = "Time here: ${dur(hereMs)}\n$drive"
+        val title = "@ #$store ${hr(hereMs)} here / Travel ${hr(travelMs)}"
+        val city = Stores.byNum(c, store)?.city ?: "Store $store"
+        val text = "$city\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
         val n = NotificationCompat.Builder(c, CH_STORE).setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle(title).setContentText(drive).setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentTitle(title).setContentText(city).setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openApp(c, "timer")).setOngoing(true).setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS).build()
         try { NotificationManagerCompat.from(c).notify(ID_STORE, n) } catch (_: SecurityException) {}

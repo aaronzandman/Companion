@@ -102,17 +102,18 @@ class TrackerService : Service(), LocationListener {
         }
         val store = cur.optString("store")
         val start = cur.optLong("start")
-        // Walk back through finished entries for the drive that led here (skipping a brief stop), stopping at an earlier visit.
-        var driveMs = 0L; var driveM = 0.0
+        // Travel = door-to-door since you left the last store/home: everything between the previous visit and this one
+        // (drives plus any stop in between, e.g. fuel). If this is the first store, measure from when you left home.
+        val st = Tracker.state(this)
+        var travelStart = st.optLong("dep", 0L).takeIf { it in 1L until start } ?: st.optLong("dayStart", start)
         val segs = Store.segments(this)
         for (i in segs.length() - 1 downTo 0) {
             val g = segs.getJSONObject(i)
             if (g.optLong("end") > start + 1000) continue
             val type = g.optString("type")
-            if (type == "DRIVE") { driveMs = g.optLong("end") - g.optLong("start"); driveM = g.optDouble("m", 0.0); break }
-            if (type == "STORE" || type == "HOME") break
+            if (type == "STORE" || type == "HOME") { travelStart = g.optLong("end"); break }
         }
-        Notify.atStore(this, store, now - start, driveMs, driveM)
+        Notify.atStore(this, store, now - start, (start - travelStart).coerceAtLeast(0L))
         storeShown = store
     }
 
