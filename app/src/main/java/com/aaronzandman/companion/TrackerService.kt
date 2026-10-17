@@ -28,6 +28,7 @@ class TrackerService : Service(), LocationListener {
     private var parkedAt: Location? = null
     private var away = 0
     private var lastText = ""
+    private var storeShown = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -40,6 +41,7 @@ class TrackerService : Service(), LocationListener {
             if (Tracker.state(this).optJSONObject("cur")?.optString("type") == "DRIVE") moving()
             val t = Tracker.state(this).optJSONObject("cur")?.let { Tracker.describe(this, it) } ?: ""
             if (t.isNotEmpty() && t != lastText) { lastText = t; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, t)) }
+            updateStoreNote(System.currentTimeMillis())
             return START_STICKY
         }
         Notify.channels(this)
@@ -85,6 +87,33 @@ class TrackerService : Service(), LocationListener {
         if (Tracker.commuteMark(this, now)) readOdometer(now, force = true)   // 30 minutes into the trip from home
         else if (st.optJSONObject("cur")?.optString("type") == "DRIVE") readOdometer(now)
         if (text != lastText) { lastText = text; getSystemService(NotificationManager::class.java).notify(Notify.ID_TRACKER, Notify.tracker(this, text)) }
+        updateStoreNote(now)
+    }
+
+    /**
+     * While parked at a store, keep a notification showing time there so far and the drive that got you there —
+     * the two figures to copy into SAP. Cleared the moment you're no longer at a store.
+     */
+    private fun updateStoreNote(now: Long) {
+        val cur = Tracker.state(this).optJSONObject("cur")
+        if (cur == null || cur.optString("type") != "STORE") {
+            if (storeShown.isNotEmpty()) { Notify.clearStore(this); storeShown = "" }
+            return
+        }
+        val store = cur.optString("store")
+        val start = cur.optLong("start")
+        // Walk back through finished entries for the drive that led here (skipping a brief stop), stopping at an earlier visit.
+        var driveMs = 0L; var driveM = 0.0
+        val segs = Store.segments(this)
+        for (i in segs.length() - 1 downTo 0) {
+            val g = segs.getJSONObject(i)
+            if (g.optLong("end") > start + 1000) continue
+            val type = g.optString("type")
+            if (type == "DRIVE") { driveMs = g.optLong("end") - g.optLong("start"); driveM = g.optDouble("m", 0.0); break }
+            if (type == "STORE" || type == "HOME") break
+        }
+        Notify.atStore(this, store, now - start, driveMs, driveM)
+        storeShown = store
     }
 
     /** GPS rate: every second while driving (accurate miles), every 5 seconds otherwise (to tell driving from stopping). */
@@ -168,6 +197,7 @@ class TrackerService : Service(), LocationListener {
         DiagLog.w(this, "TIMER", "timer stopping · ${DiagLog.dayState(this)} ← ${DiagLog.caller()}")
         try { lm?.removeUpdates(this) } catch (_: Exception) {}
         lm = null
+        Notify.clearStore(this); storeShown = ""
         if (!Tracker.isRunning(this)) StandbyService.start(this)   // day over: back to standby
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()

@@ -21,7 +21,9 @@ object Notify {
     const val ID_TRACKER = 1
     const val CH_UPDATE = "updates"
     const val CH_DAY = "day"
+    const val CH_STORE = "store"
     const val ID_UPDATE = 3
+    const val ID_STORE = 6
 
     /** "Update ready" notification; tapping it opens Companion's install prompt. */
     fun updateReady(c: Context, tag: String) {
@@ -43,8 +45,42 @@ object Notify {
             nm.createNotificationChannel(NotificationChannel(CH_STANDBY, "Companion is on", NotificationManager.IMPORTANCE_MIN))
             nm.createNotificationChannel(NotificationChannel(CH_UPDATE, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
             nm.createNotificationChannel(NotificationChannel(CH_DAY, "Day started / ended", NotificationManager.IMPORTANCE_HIGH))
+            nm.createNotificationChannel(NotificationChannel(CH_STORE, "Time at store", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "While you're parked at a store: time there so far and the drive that got you there."
+            })
         }
     }
+
+    /** "2h 05m", "47 min", "3 min". */
+    private fun dur(ms: Long): String {
+        val m = (ms / 60_000L).toInt()
+        return if (m >= 60) "${m / 60}h ${"%02d".format(m % 60)}m" else "$m min"
+    }
+
+    /**
+     * While parked at a store: the time there so far and the drive that got you there — the two numbers you copy into
+     * SAP when you log labor and travel. Updates in place (same ID) on each location fix; cleared when you leave.
+     */
+    fun atStore(c: Context, store: String, hereMs: Long, driveMs: Long, driveMeters: Double) {
+        if (quiet(c)) return
+        channels(c)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val city = Stores.byNum(c, store)?.city?.let { " – $it" } ?: ""
+        val title = "At store $store$city · ${dur(hereMs)} here"
+        val drive = if (driveMs >= 60_000L) {
+            val mi = if (driveMeters > 0) " · %.1f mi".format(driveMeters / 1609.344) else ""
+            "Drove ${dur(driveMs)} to get here$mi"
+        } else "No drive recorded just before this stop"
+        val text = "Time here: ${dur(hereMs)}\n$drive"
+        val n = NotificationCompat.Builder(c, CH_STORE).setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(title).setContentText(drive).setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openApp(c, "timer")).setOngoing(true).setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS).build()
+        try { NotificationManagerCompat.from(c).notify(ID_STORE, n) } catch (_: SecurityException) {}
+    }
+
+    /** Clear the "at store" notification (you drove off, or the day ended). */
+    fun clearStore(c: Context) { try { NotificationManagerCompat.from(c).cancel(ID_STORE) } catch (_: Exception) {} }
 
     fun openApp(c: Context, tab: String): PendingIntent {
         val i = Intent(c, MainActivity::class.java).putExtra("tab", tab).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
