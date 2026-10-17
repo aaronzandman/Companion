@@ -105,15 +105,19 @@ class TrackerService : Service(), LocationListener {
         // Travel = door-to-door since you left the last store/home: everything between the previous visit and this one
         // (drives plus any stop in between, e.g. fuel). If this is the first store, measure from when you left home.
         val st = Tracker.state(this)
-        var travelStart = st.optLong("dep", 0L).takeIf { it in 1L until start } ?: st.optLong("dayStart", start)
+        val dayStart = st.optLong("dayStart", start)
+        var travelStart = st.optLong("dep", 0L).takeIf { it in 1L until start } ?: dayStart
+        var firstStore = true   // first Publix of the day (so the Clock-in option shows only once)
         val segs = Store.segments(this)
+        var travelFound = false
         for (i in segs.length() - 1 downTo 0) {
             val g = segs.getJSONObject(i)
             if (g.optLong("end") > start + 1000) continue
             val type = g.optString("type")
-            if (type == "STORE" || type == "HOME") { travelStart = g.optLong("end"); break }
+            if (type == "STORE") { if (g.optLong("start") >= dayStart) firstStore = false; if (!travelFound) { travelStart = g.optLong("end"); travelFound = true } }
+            else if (type == "HOME" && !travelFound) { travelStart = g.optLong("end"); travelFound = true }
         }
-        Notify.atStore(this, store, now - start, (start - travelStart).coerceAtLeast(0L))
+        Notify.atStore(this, store, now - start, (start - travelStart).coerceAtLeast(0L), firstStore)
         storeShown = store
     }
 

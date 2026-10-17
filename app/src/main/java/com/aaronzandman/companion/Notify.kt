@@ -63,18 +63,31 @@ object Notify {
      * Travel is the whole door-to-door gap since you left the last store/home (drives plus any stop between, e.g. fuel).
      * Updates in place (same ID) on each location fix; cleared when you leave.
      */
-    fun atStore(c: Context, store: String, hereMs: Long, travelMs: Long) {
+    const val CLOCK_IN_URL = "https://timetracking.publix.org/app/home"
+    private const val EDGE = "com.microsoft.emmx"
+
+    /** Opens the Publix time-tracking page to clock in — in Edge when it's installed, else the default browser. */
+    private fun clockInIntent(c: Context): PendingIntent {
+        val i = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(CLOCK_IN_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (c.packageManager.getLaunchIntentForPackage(EDGE) != null) i.setPackage(EDGE)
+        return PendingIntent.getActivity(c, 95, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    fun atStore(c: Context, store: String, hereMs: Long, travelMs: Long, firstStore: Boolean) {
         if (quiet(c)) return
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val title = "@ #$store ${hr(hereMs)} here / Travel ${hr(travelMs)}"
         val city = Stores.byNum(c, store)?.city ?: "Store $store"
-        val text = "$city\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
-        val n = NotificationCompat.Builder(c, CH_STORE).setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle(title).setContentText(city).setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        val body = if (firstStore) "$city · tap Clock in to open time tracking\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
+                   else "$city\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
+        val b = NotificationCompat.Builder(c, CH_STORE).setSmallIcon(R.drawable.ic_notify)
+            .setContentTitle(title).setContentText(if (firstStore) "$city · tap Clock in" else city)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(openApp(c, "timer")).setOngoing(true).setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS).build()
-        try { NotificationManagerCompat.from(c).notify(ID_STORE, n) } catch (_: SecurityException) {}
+            .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS)
+        if (firstStore) b.addAction(0, "Clock in", clockInIntent(c))
+        try { NotificationManagerCompat.from(c).notify(ID_STORE, b.build()) } catch (_: SecurityException) {}
     }
 
     /** Clear the "at store" notification (you drove off, or the day ended). */
