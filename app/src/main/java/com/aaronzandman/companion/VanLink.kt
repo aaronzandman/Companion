@@ -30,8 +30,13 @@ object VanLink {
     private val h = Handler(Looper.getMainLooper())
     @Volatile private var gatt: BluetoothGatt? = null
     private val SPP: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-    private const val POLL_MS = 60_000L
+    // Standby voltage check: slow and battery-cheap. The offloaded BLE scan (VanWatch) is what actually notices the van
+    // and starts the day; this is only a backstop, so it runs rarely and as an inexact alarm Android can batch in Doze.
+    private const val POLL_MS = 10 * 60_000L
     const val RUNNING_V = 13.0
+
+    /** The scan tells us when the vLinker comes and goes, so no polling is needed while the van is away. */
+    private fun scanReliable(c: Context) = Store.get(c, "vanLostOk", "0") == "1" && Store.get(c, "vanWatchErr", "").isBlank()
 
     private fun wanted(c: Context) = VanWatch.on(c) && !Tracker.isRunning(c) && !VanSession.enabled(c)   // the van session holds the vLinker instead
     private fun adapter(c: Context) = c.getSystemService(BluetoothManager::class.java)?.adapter
@@ -60,10 +65,10 @@ object VanLink {
                         Thread { try { VanWatch.vanOn(app, "vLinker") } catch (_: Exception) {} }.start()
                         h.postDelayed({ arm(app) }, 5 * 60_000L)   // re-arm later; while the van stays on it just answers again (ignored)
                     } else if (state == BluetoothProfile.STATE_DISCONNECTED && gatt === g && status != 0) {
-                        VanWatch.log(app, "auto-connect request dropped (status $status); re-arming in 1 min")
+                        VanWatch.log(app, "auto-connect request dropped (status $status); re-arming in 5 min")
                         try { g.close() } catch (_: Exception) {}
                         gatt = null
-                        h.postDelayed({ arm(app) }, 60_000L)
+                        h.postDelayed({ arm(app) }, 5 * 60_000L)
                     }
                 }
             }, BluetoothDevice.TRANSPORT_LE)
@@ -81,12 +86,14 @@ object VanLink {
 
     fun schedulePoll(c: Context, delay: Long = POLL_MS) {
         if (!wanted(c) || Store.get(c, "obdAddr", "").isBlank()) { cancelPoll(c); return }
+        // While the van is away and the scan can report its return on its own, don't poll at all — the scan wakes us.
+        if (Store.get(c, "vanPresent", "0") == "0" && scanReliable(c)) { cancelPoll(c); return }
         val am = c.getSystemService(AlarmManager::class.java)
         val at = SystemClock.elapsedRealtime() + delay
         try {
-            if (exactOk(c)) am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi(c))
-            else am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi(c))
-        } catch (e: Exception) { VanWatch.log(c, "minute check couldn't be scheduled: $e") }
+            // Inexact (batchable in Doze): a few minutes' slack is fine, and the scan handles prompt detection.
+            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi(c))
+        } catch (e: Exception) { VanWatch.log(c, "voltage check couldn't be scheduled: $e") }
     }
     fun cancelPoll(c: Context) { try { c.getSystemService(AlarmManager::class.java).cancel(pi(c)) } catch (_: Exception) {} }
 
@@ -104,10 +111,12 @@ object VanLink {
                 else -> "minute check: ★ vLinker answered, %.1f V — engine running".format(v)
             })
         }
-        DiagLog.w(c, "CHECK", "minute check: " + if (v == null) "no answer" else "answered, %.1f V".format(v))
+        DiagLog.w(c, "CHECK", "voltage check: " + if (v == null) "no answer" else "answered, %.1f V".format(v))
         if (v != null) Store.put(c, "vanVolts", "%.1f".format(v))
         if (now == "run") VanWatch.vanOn(c, "vLinker")
-        if (!Tracker.isRunning(c)) schedulePoll(c, if (now == "idle") 20_000L else POLL_MS)
+        // Keep the slow backstop going only while the day hasn't started. When the van is away and the scan can see it
+        // return, schedulePoll stops rescheduling on its own (no polling while parked away = no drain).
+        if (!Tracker.isRunning(c)) schedulePoll(c, POLL_MS)
     }
 
     private fun voltage(c: Context): Double? {
