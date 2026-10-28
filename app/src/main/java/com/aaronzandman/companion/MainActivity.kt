@@ -208,6 +208,12 @@ class MainActivity : Activity() {
     @Deprecated("Activity result API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        val scan = com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (scan != null) {
+            if (scan.contents == null) web.evaluateJavascript("window.tcScanFail&&tcScanFail('Scan canceled.')", null)
+            else handleScanChunk(scan.contents)
+            return
+        }
         if (requestCode == REQ_FORD) { web.evaluateJavascript("refresh()", null); return }
         if (requestCode == REQ_CSV) {
             val u = data?.data
@@ -274,6 +280,53 @@ class MainActivity : Activity() {
             }
         }
         return Store.addDispatches(this, found)
+    }
+
+    // ---- SAP time-check barcode scanning (ZXing) ----
+    private val tcChunks = HashMap<Int, String>()
+    private var tcId = ""
+    private var tcTotal = 0
+
+    private fun launchScan(prompt: String) = runOnUiThread {
+        try {
+            com.google.zxing.integration.android.IntentIntegrator(this).apply {
+                setDesiredBarcodeFormats(com.google.zxing.integration.android.IntentIntegrator.QR_CODE)
+                setPrompt(prompt); setBeepEnabled(false); setOrientationLocked(false)
+            }.initiateScan()
+        } catch (e: Exception) { web.evaluateJavascript("window.tcScanFail&&tcScanFail('Couldn\\'t open the camera.')", null) }
+    }
+
+    /** One scanned code: RP47.<id>.<i>.<n>.<chunk>. Collect all n, then decode and hand the data to the page. */
+    private fun handleScanChunk(text: String) {
+        val parts = text.split(".", limit = 5)
+        if (parts.size < 5 || parts[0] != "RP47") { web.evaluateJavascript("window.tcScanFail&&tcScanFail('That isn\\'t a SAP time-check barcode.')", null); return }
+        val id = parts[1]; val i = parts[2].toIntOrNull() ?: 0; val n = parts[3].toIntOrNull() ?: 0; val chunk = parts[4]
+        if (i < 1 || n < 1) { web.evaluateJavascript("window.tcScanFail&&tcScanFail('That barcode was unreadable.')", null); return }
+        if (id != tcId) { tcChunks.clear(); tcId = id; tcTotal = n }
+        tcChunks[i] = chunk
+        if (tcChunks.size < n) {
+            web.evaluateJavascript("window.tcScanMsg&&tcScanMsg('Got code ${tcChunks.size} of $n — scan the next one.')", null)
+            launchScan("Scan code ${tcChunks.size + 1} of $n")
+            return
+        }
+        val json = try { decodeTc() } catch (e: Exception) { null }
+        if (json == null) web.evaluateJavascript("window.tcScanFail&&tcScanFail('Couldn\\'t read that barcode set. Start over.')", null)
+        else web.evaluateJavascript("window.onTimeCheck(${JSONObject.quote(json)})", null)
+        tcChunks.clear(); tcId = ""; tcTotal = 0
+    }
+
+    private fun decodeTc(): String? {
+        if (tcTotal <= 0) return null
+        val sb = StringBuilder()
+        for (i in 1..tcTotal) sb.append(tcChunks[i] ?: return null)
+        val packed = sb.toString(); if (packed.isEmpty()) return null
+        val bytes = android.util.Base64.decode(packed.substring(1), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+        return if (packed[0] == '1') {
+            val inf = java.util.zip.Inflater(true); inf.setInput(bytes)
+            val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192)
+            while (!inf.finished()) { val k = inf.inflate(buf); if (k == 0 && (inf.finished() || inf.needsInput())) break; out.write(buf, 0, k) }
+            inf.end(); out.toString("UTF-8")
+        } else String(bytes, Charsets.UTF_8)
     }
 
     inner class Bridge {
@@ -387,6 +440,9 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface fun scan(): Int = scanInbox(7)
+
+        /** Scan the SAP time-check barcode(s) from Route Planner (IW47 logged time), then compare in the page. */
+        @JavascriptInterface fun scanTimeCheck() { tcChunks.clear(); tcId = ""; tcTotal = 0; launchScan("Scan the SAP time-check barcode") }
 
         /** Reads every dispatch text on the phone (in the background). Calls onImportAll(newCount, total). */
         @JavascriptInterface fun importAll() {

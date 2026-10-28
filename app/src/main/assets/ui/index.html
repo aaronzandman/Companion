@@ -47,6 +47,17 @@ button{font:inherit}
 .grp>summary::after{content:"▾";font-size:16px;color:var(--muted);transition:transform .15s}
 .grp[open]>summary::after{transform:rotate(180deg)}
 .grp>.card{margin:0;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none}
+.tcT{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0}
+.tcT th,.tcT td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left}
+.tcT th{font-weight:600;color:var(--muted)}
+.tcT .num{text-align:right;font-variant-numeric:tabular-nums}
+.tcDay,.tcWeek{margin-top:10px}
+.tcDayHd{font-weight:700;margin-top:6px}
+.tcMiss{background:rgba(200,55,45,.14)}
+.tcMiss td:last-child{color:#C8372D;font-weight:600}
+.tcOver{background:rgba(201,138,18,.12)}
+.tcOv{color:var(--muted)}
+.tcMissTxt{color:#C8372D}
 .grp>.card[hidden]{display:none}
 details.more{margin-top:8px}details.more>summary{color:var(--road);font-weight:600;cursor:pointer;padding:6px 0}
 .sub3{font:700 15px var(--body);margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--line)}
@@ -151,6 +162,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
   <nav>
     <button data-tab="texts" class="on">Texts<span class="dot" id="newDot" hidden></span></button>
     <button data-tab="timer">Timer</button>
+    <button data-tab="timecheck">Time check</button>
     <button data-tab="settings">Settings</button>
   </nav>
 </header>
@@ -392,7 +404,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.26.1).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.27.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -402,6 +414,17 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <p class="hint">Everything Companion records stays on this phone. It only goes online to check for updates, when you send calls to Route Planner, and when you send your time log from Outlook.</p>
     </div>
     <div id="secret" aria-hidden="true"></div>
+  </section>
+
+  <!-- TIME CHECK -->
+  <section id="timecheck">
+    <div class="card">
+      <h2>SAP time check</h2>
+      <p class="hint">Compare the time you logged in SAP against the time Companion tracked, so you can spot a store where you forgot to log time. In Route Planner (☰ Menu → 🕑 SAP time check), paste your IW47 export and make the barcode, then scan it here.</p>
+      <button class="btn" id="tcScanBtn">📷 Scan SAP barcode</button>
+      <div class="msg" id="tcScanMsg"></div>
+    </div>
+    <div class="card" id="tcOut" hidden></div>
   </section>
 </main>
 <div id="fbDlg" class="dlg" role="dialog" aria-modal="true" aria-labelledby="fbTitle" hidden>
@@ -1438,7 +1461,60 @@ function onUpdate(r){
   u.classList.remove("show");
   if(manual) toast(`You're up to date: ${verTxt(S.version)} is the newest version.`);
 }
-const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","settings"].includes(tab)) showTab(tab);
+// ---------- SAP time check (scan IW47 barcode from Route Planner, compare to tracked time) ----------
+$("tcScanBtn").onclick=()=>{ $("tcScanMsg").className="msg"; $("tcScanMsg").textContent="Point the camera at the barcode in Route Planner…"; try{ A.scanTimeCheck(); }catch(e){ $("tcScanMsg").className="msg err"; $("tcScanMsg").textContent="Scanning isn't available on this build."; } };
+window.tcScanMsg=(m)=>{ $("tcScanMsg").className="msg"; $("tcScanMsg").textContent=m||""; };
+window.tcScanFail=(m)=>{ $("tcScanMsg").className="msg err"; $("tcScanMsg").textContent=m||"Scan canceled."; };
+function tcYmd(ms){ const d=new Date(ms); return ""+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"); }
+function tcNice(y){ return (+y.slice(4,6))+"/"+(+y.slice(6,8)); }
+// tracked STORE hours per store per day, from Companion's own segments
+function trackedByStoreDay(dates){
+  const want=new Set(dates), out={};   // out[ymd][store]=hours
+  (S.segments||[]).forEach(g=>{
+    if(g.type!=="STORE"||!g.store) return;
+    const ymd=tcYmd(g.start); if(!want.has(ymd)) return;
+    const hrs=Math.max(0,(g.end-g.start))/3600000;
+    (out[ymd]=out[ymd]||{}); out[ymd][g.store]=(out[ymd][g.store]||0)+hrs;
+  });
+  return out;
+}
+window.onTimeCheck=(json)=>{
+  let p; try{ p=JSON.parse(json); }catch(e){ window.tcScanFail("That barcode couldn't be read. Try again."); return; }
+  if(!p||p.t!=="iw47"||!Array.isArray(p.d)){ window.tcScanFail("That isn't a SAP time-check barcode."); return; }
+  $("tcScanMsg").textContent="";
+  const dates=p.d.slice();
+  // logged[ymd][store]=hours
+  const logged={}; (p.s||[]).forEach(([st,di,h])=>{ const ymd=dates[di]; if(!ymd) return; (logged[ymd]=logged[ymd]||{}); logged[ymd][st]=(logged[ymd][st]||0)+h; });
+  const overhead={}; (p.o||[]).forEach(([di,h])=>{ const ymd=dates[di]; if(ymd) overhead[ymd]=(overhead[ymd]||0)+h; });
+  const tracked=trackedByStoreDay(dates);
+  // Build per-day comparison + weekly rollup
+  let totTrk=0, totLog=0, totMiss=0; const weekTrk={}, weekLog={}; let html="";
+  const dayBlocks=dates.map(ymd=>{
+    const stores=[...new Set([...Object.keys(logged[ymd]||{}),...Object.keys(tracked[ymd]||{})])].sort();
+    let rows="", dayMiss=0;
+    stores.forEach(st=>{
+      const lg=(logged[ymd]||{})[st]||0, tk=(tracked[ymd]||{})[st]||0, diff=tk-lg;
+      totTrk+=tk; totLog+=lg; weekTrk[st]=(weekTrk[st]||0)+tk; weekLog[st]=(weekLog[st]||0)+lg;
+      let cls="", note="";
+      if(diff>=0.1){ cls="tcMiss"; dayMiss+=diff; note = lg<0.005 ? "no SAP time logged" : "missing "+diff.toFixed(2); }
+      else if(lg-tk>=0.1){ cls="tcOver"; note="logged "+(lg-tk).toFixed(2)+" over"; }
+      rows+=`<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td>${note}</td></tr>`;
+    });
+    totMiss+=dayMiss;
+    const ov=overhead[ymd]?`<tr class="tcOv"><td>Overhead</td><td class="num">—</td><td class="num">${overhead[ymd].toFixed(2)}</td><td>not tied to a store</td></tr>`:"";
+    return `<div class="tcDay"><div class="tcDayHd">${tcNice(ymd)} <span class="hint">${dayMiss>=0.1?("· missing "+dayMiss.toFixed(2)+" hr"):"· ok"}</span></div>
+      <table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th>Flag</th></tr>${rows}${ov}</table></div>`;
+  }).join("");
+  // weekly rollup
+  const wStores=[...new Set([...Object.keys(weekTrk),...Object.keys(weekLog)])].sort();
+  const wRows=wStores.map(st=>{ const tk=weekTrk[st]||0, lg=weekLog[st]||0, diff=tk-lg; const cls=diff>=0.1?"tcMiss":(lg-tk>=0.1?"tcOver":""); return `<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td class="num">${diff>=0.1?("+"+diff.toFixed(2)):(lg-tk>=0.1?("-"+(lg-tk).toFixed(2)):"✓")}</td></tr>`; }).join("");
+  html=`<h2>Time check — ${tcNice(dates[0])}–${tcNice(dates[dates.length-1])}</h2>
+    <p class="hint">Tracked ${totTrk.toFixed(2)} hr · logged in SAP ${totLog.toFixed(2)} hr · <b class="${totMiss>=0.1?"tcMissTxt":""}">${totMiss>=0.1?("missing "+totMiss.toFixed(2)+" hr"):"nothing missing"}</b>. Compared only for the day(s) you imported.</p>
+    <div class="tcWeek"><div class="tcDayHd">Per store (whole import)</div><table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th class="num">Diff</th></tr>${wRows}</table></div>
+    ${dayBlocks}`;
+  const out=$("tcOut"); out.hidden=false; out.innerHTML=html; showTab("timecheck");
+};
+const tab=(location.hash||"").slice(1); refresh(); if(["texts","timer","timecheck","settings"].includes(tab)) showTab(tab);
 setInterval(()=>{ if(!document.hidden) refresh(); },5000);
 // check for updates when the app opens and every 6 hours while it's open (the app limits real checks to every 6 hours)
 // When Companion opens, the first thing it does is check for an update (and download it), then offer to install.
