@@ -73,19 +73,41 @@ object Notify {
         return PendingIntent.getActivity(c, 95, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    fun atStore(c: Context, store: String, hereMs: Long, travelMs: Long, firstStore: Boolean) {
+    /** Broadcast to StoreLapReceiver (split the ticket / undo) without opening the app. */
+    private fun lapIntent(c: Context, action: String): PendingIntent {
+        val i = Intent(c, StoreLapReceiver::class.java).setAction(action)
+        return PendingIntent.getBroadcast(c, action.hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    /**
+     * While at a store. [tickets] are the finished ticket lengths (ms) at this store; [currentMs] is the ticket now
+     * running. "Next ticket" saves the running ticket and starts a new one — a lap timer so each ticket bills separately.
+     */
+    fun atStore(c: Context, store: String, hereMs: Long, travelMs: Long, firstStore: Boolean, tickets: LongArray, currentMs: Long) {
         if (quiet(c)) return
         channels(c)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val title = "@ #$store ${hr(hereMs)} here / Travel ${hr(travelMs)}"
         val city = Stores.byNum(c, store)?.city ?: "Store $store"
-        val body = if (firstStore) "$city · tap Clock in to open time tracking\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
-                   else "$city\n${hr(hereMs)} here · Travel ${hr(travelMs)}"
+        val lapping = tickets.isNotEmpty()
+        val ticketNo = tickets.size + 1
+        val title = if (lapping) "@ #$store · Ticket $ticketNo: ${hr(currentMs)}"
+                    else "@ #$store ${hr(hereMs)} here / Travel ${hr(travelMs)}"
+        val body = StringBuilder()
+        body.append(if (firstStore) "$city · tap Clock in to open time tracking" else city)
+        if (lapping) {
+            for (i in tickets.indices) body.append("\nTicket ${i + 1}: ${hr(tickets[i])}")
+            body.append("\nTicket $ticketNo: ${hr(currentMs)} (running)")
+        }
+        body.append("\n${hr(hereMs)} here · Travel ${hr(travelMs)}")
+        val collapsed = if (lapping) "Ticket $ticketNo: ${hr(currentMs)} · ${hr(hereMs)} here" else "$city · ${hr(hereMs)} here"
         val b = NotificationCompat.Builder(c, CH_STORE).setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle(title).setContentText(if (firstStore) "$city · tap Clock in" else city)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(title).setContentText(collapsed)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body.toString()))
             .setContentIntent(openApp(c, "timer")).setOngoing(true).setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS)
+        // Up to 3 actions: the lap button, undo (once lapping), and clock-in at the first store.
+        b.addAction(0, if (lapping) "Next ticket ▸" else "Start ticket ▸", lapIntent(c, "lap"))
+        if (lapping) b.addAction(0, "Undo", lapIntent(c, "undo"))
         if (firstStore) b.addAction(0, "Clock in", clockInIntent(c))
         try { NotificationManagerCompat.from(c).notify(ID_STORE, b.build()) } catch (_: SecurityException) {}
     }

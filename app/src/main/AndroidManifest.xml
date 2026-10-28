@@ -87,6 +87,7 @@
         </receiver>
         <receiver android:name=".VanScanReceiver" android:exported="false" />
         <receiver android:name=".VanPollReceiver" android:exported="false" />
+        <receiver android:name=".StoreLapReceiver" android:exported="false" />
         <receiver android:name=".BtReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />

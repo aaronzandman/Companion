@@ -392,7 +392,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.25.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.26.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -619,7 +619,7 @@ function render(){
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const payLine=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
     const fuelBtn=g.type==="STOP"?` <button class="fuel${g.tag==="FUEL"?" on":""}" data-fuel="${g.start}" data-on="${g.tag==="FUEL"?1:0}">⛽ ${g.tag==="FUEL"?"Fuel stop":"Fuel?"}</button>`:"";
-    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}</div>`:""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
+    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}</div>`:""}${lapLine(g)}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
   { // override buttons: only while the day runs; each shows until used (change or undo it in the log window)
     const ov=(S.overrides||{})[dayKey(Date.now())]||{}, anyWork=cl.pieces.some(p=>p.pay==="WORK");
@@ -677,6 +677,14 @@ function visitTickets(g){
   return [...new Set((S.dispatches||[]).filter(d=>String(d.store)===String(g.store)&&d.receivedAt<=end&&d.receivedAt>=end-14*864e5).sort((a,b)=>a.receivedAt-b.receivedAt).map(d=>String(d.order)))];
 }
 const ticketTxt=g=>{ const t=visitTickets(g); return t.length?` · Tickets ${t.map(x=>"#"+x).join(", ")}`:""; };
+// Per-ticket billable lengths at a store (ms), split by the lap marks you tapped on the notification. Empty = one ticket.
+function visitLaps(g){
+  if(!g||g.type!=="STORE"||!Array.isArray(g.lapMarks)||!g.lapMarks.length) return [];
+  const end=g.end||Date.now(), bnds=[g.start,...g.lapMarks.filter(m=>m>g.start&&m<end),end], out=[];
+  for(let i=0;i<bnds.length-1;i++) out.push(bnds[i+1]-bnds[i]);
+  return out;
+}
+const lapLine=g=>{ const l=visitLaps(g); return l.length>1?`<div class="t">${l.map((d,i)=>`Ticket ${i+1}: ${hm(d)} hrs`).join(" · ")}</div>`:""; };
 function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="HOME") return "At home"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return g.tag==="FUEL"?"Fuel stop":"Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 
@@ -818,7 +826,8 @@ function dayText(segs,title,live){
   t+=`Driving ${fh(tot.DRIVE)} hrs · At stores ${fh(tot.STORE)} hrs · Other stops ${fh(tot.STOP)} hrs\n`;
   pieces.forEach(p=>{ t+=`\n${tm(p.start)}–${p.live&&p.end>=p.seg.end?"now":tm(p.end)}  ${payName[p.pay]}: ${label(p)}${p.tag==="FUEL"?" (fuel)":""} (${hm(p.end-p.start)} hrs)${ticketTxt(p.seg)}`;
     if(p.mi) t+=`  ${miTxt(p.mi)}`;
-    const a=odoAt(p.start), b=odoAt(p.end); if(p.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)}`; });
+    const a=odoAt(p.start), b=odoAt(p.end); if(p.type==="DRIVE"&&a&&b&&b.mi>=a.mi) t+=`  odo ${fmtMi(a.mi)} → ${fmtMi(b.mi)}`;
+    if(p.type==="STORE"){ const l=visitLaps(p.seg); if(l.length>1) l.forEach((d,i)=>{ t+=`\n    Ticket ${i+1}: ${hm(d)} hrs`; }); } });
   if(notes.length) t+="\n\nNote: "+notes.join(" ");
   return t;
 }
@@ -1005,7 +1014,7 @@ function renderLog(){
   $("logList").innerHTML=(LOG_EDIT==="new"?form(null):"")+(segs.length?segs.slice().reverse().map(g=>{
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const pay=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
-    return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual||g.imported?' <span class="hint">✎</span>':""}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}${g.orders?"":' <span class="hint">(from texts)</span>'}</div>`:""}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
+    return `<div class="lent"><div class="top"><i class="${g.type}" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:6px"></i><div><b>${label(g)}</b>${g.edited||g.manual||g.imported?' <span class="hint">✎</span>':""}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}${g.orders?"":' <span class="hint">(from texts)</span>'}</div>`:""}${lapLine(g)}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${pay}</div></div>
       <button class="lnk" data-edit="${g.start}">Edit</button></div>${LOG_EDIT===String(g.start)?form(g):""}</div>`; }).join("")
     : `<div class="empty">Nothing recorded this day.</div>`);
   $("logList").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>{ LOG_EDIT=b.dataset.edit; renderLog(); });

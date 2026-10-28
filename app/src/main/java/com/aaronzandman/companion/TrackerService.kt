@@ -90,36 +90,7 @@ class TrackerService : Service(), LocationListener {
         updateStoreNote(now)
     }
 
-    /**
-     * While parked at a store, keep a notification showing time there so far and the drive that got you there —
-     * the two figures to copy into SAP. Cleared the moment you're no longer at a store.
-     */
-    private fun updateStoreNote(now: Long) {
-        val cur = Tracker.state(this).optJSONObject("cur")
-        if (cur == null || cur.optString("type") != "STORE") {
-            if (storeShown.isNotEmpty()) { Notify.clearStore(this); storeShown = "" }
-            return
-        }
-        val store = cur.optString("store")
-        val start = cur.optLong("start")
-        // Travel = door-to-door since you left the last store/home: everything between the previous visit and this one
-        // (drives plus any stop in between, e.g. fuel). If this is the first store, measure from when you left home.
-        val st = Tracker.state(this)
-        val dayStart = st.optLong("dayStart", start)
-        var travelStart = st.optLong("dep", 0L).takeIf { it in 1L until start } ?: dayStart
-        var firstStore = true   // first Publix of the day (so the Clock-in option shows only once)
-        val segs = Store.segments(this)
-        var travelFound = false
-        for (i in segs.length() - 1 downTo 0) {
-            val g = segs.getJSONObject(i)
-            if (g.optLong("end") > start + 1000) continue
-            val type = g.optString("type")
-            if (type == "STORE") { if (g.optLong("start") >= dayStart) firstStore = false; if (!travelFound) { travelStart = g.optLong("end"); travelFound = true } }
-            else if (type == "HOME" && !travelFound) { travelStart = g.optLong("end"); travelFound = true }
-        }
-        Notify.atStore(this, store, now - start, (start - travelStart).coerceAtLeast(0L), firstStore)
-        storeShown = store
-    }
+    private fun updateStoreNote(now: Long) { storeShown = postStoreNote(this) }
 
     /** GPS rate: every second while driving (accurate miles), every 5 seconds otherwise (to tell driving from stopping). */
     private var rateMs = 0L
@@ -213,6 +184,39 @@ class TrackerService : Service(), LocationListener {
     companion object {
         const val ACTION_STOP = "stop"
         const val ACTION_BT = "bt"
+        /**
+         * Build and post the "at store" notification (time there, door-to-door travel, and the per-ticket lap timer),
+         * or clear it when you're not at a store. Usable off the service (e.g. from the lap button). Returns the store.
+         */
+        fun postStoreNote(c: Context): String {
+            val now = System.currentTimeMillis()
+            val st = Tracker.state(c)
+            val cur = st.optJSONObject("cur")
+            if (cur == null || !st.optBoolean("running") || cur.optString("type") != "STORE") { Notify.clearStore(c); return "" }
+            val store = cur.optString("store")
+            val start = cur.optLong("start")
+            // Travel = door-to-door since you left the last store/home (drives plus any stop between, e.g. fuel).
+            val dayStart = st.optLong("dayStart", start)
+            var travelStart = st.optLong("dep", 0L).takeIf { it in 1L until start } ?: dayStart
+            var firstStore = true
+            var travelFound = false
+            val segs = Store.segments(c)
+            for (i in segs.length() - 1 downTo 0) {
+                val g = segs.getJSONObject(i)
+                if (g.optLong("end") > start + 1000) continue
+                val type = g.optString("type")
+                if (type == "STORE") { if (g.optLong("start") >= dayStart) firstStore = false; if (!travelFound) { travelStart = g.optLong("end"); travelFound = true } }
+                else if (type == "HOME" && !travelFound) { travelStart = g.optLong("end"); travelFound = true }
+            }
+            // Per-ticket splits: boundaries are start → each lap mark → now. Finished tickets are the gaps before "now".
+            val marks = cur.optJSONArray("lapMarks")
+            val tickets = ArrayList<Long>()
+            var prev = start
+            if (marks != null) for (i in 0 until marks.length()) { val m = marks.optLong(i); if (m > prev) { tickets.add(m - prev); prev = m } }
+            Notify.atStore(c, store, now - start, (start - travelStart).coerceAtLeast(0L), firstStore, tickets.toLongArray(), now - prev)
+            return store
+        }
+
         /** Tell the running timer that the van connected or disconnected. */
         fun ping(c: Context) { try { c.startService(Intent(c, TrackerService::class.java).setAction(ACTION_BT)) } catch (_: Exception) {} }
         fun start(c: Context) { StandbyService.stop(c); ContextCompat.startForegroundService(c, Intent(c, TrackerService::class.java)) }

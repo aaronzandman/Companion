@@ -96,6 +96,11 @@ object Tracker {
         }
         cur.optJSONArray("trk")?.let { trk -> trk.put(JSONArray().put(end / 1000).put(Math.round(cur.optDouble("m", 0.0)))); g.put("trk", trk) }
         if (cur.optString("tag").isNotEmpty()) g.put("tag", cur.optString("tag"))
+        // Keep the per-ticket splits (lap marks) within the kept visit, dropping any that fall outside [start, end].
+        cur.optJSONArray("lapMarks")?.let { m ->
+            val kept = JSONArray(); for (i in 0 until m.length()) { val t = m.optLong(i); if (t in (start + 1) until end) kept.put(t) }
+            if (kept.length() > 0) g.put("lapMarks", kept)
+        }
         segs.put(g)
         Store.saveSegments(c, segs)
     }
@@ -233,6 +238,34 @@ object Tracker {
             if (!s.optBoolean("running") || dep == 0L || s.optBoolean("reached") || s.optBoolean("mark") || now - dep < 30 * 60_000L) return false
             s.put("mark", true); save(c, s); return true
         }
+    }
+
+    /**
+     * Lap/ticket split for the store you're at: "this ticket is done, start the next one now". A billable ticket is the
+     * time between two marks (or between the arrival and the first mark, and the last mark and when you leave).
+     * Returns the number of tickets now in progress (marks + 1), or 0 if you're not at a store.
+     */
+    fun storeLap(c: Context, now: Long = System.currentTimeMillis()): Int = synchronized(lock) {
+        val s = state(c); if (!s.optBoolean("running")) return@synchronized 0
+        val cur = s.optJSONObject("cur") ?: return@synchronized 0
+        if (cur.optString("type") != "STORE") return@synchronized 0
+        val marks = cur.optJSONArray("lapMarks") ?: JSONArray().also { cur.put("lapMarks", it) }
+        val lastBoundary = if (marks.length() > 0) marks.optLong(marks.length() - 1) else cur.optLong("start")
+        if (now - lastBoundary < 2000L) return@synchronized marks.length() + 1   // ignore accidental double-taps
+        marks.put(now); save(c, s)
+        DiagLog.w(c, "LAP", "store ${cur.optString("store")}: ticket ${marks.length()} saved, ticket ${marks.length() + 1} started")
+        marks.length() + 1
+    }
+
+    /** Undo the most recent ticket split (merges the last two tickets back into one). Returns tickets now, or 0 if none. */
+    fun storeLapUndo(c: Context): Int = synchronized(lock) {
+        val s = state(c); val cur = s.optJSONObject("cur") ?: return@synchronized 0
+        if (!s.optBoolean("running") || cur.optString("type") != "STORE") return@synchronized 0
+        val marks = cur.optJSONArray("lapMarks") ?: return@synchronized 1
+        if (marks.length() == 0) return@synchronized 1
+        marks.remove(marks.length() - 1); save(c, s)
+        DiagLog.w(c, "LAP", "store ${cur.optString("store")}: last ticket split undone")
+        marks.length() + 1
     }
 
     /** Marks an entry (or the one in progress) with a tag such as FUEL; empty tag clears it. */
