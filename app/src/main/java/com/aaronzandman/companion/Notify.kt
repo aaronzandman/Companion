@@ -106,7 +106,7 @@ object Notify {
             .setContentIntent(openApp(c, "timer")).setOngoing(true).setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_STATUS)
         // Up to 3 actions: the lap button, undo (once lapping), and clock-in at the first store.
-        b.addAction(0, if (lapping) "Next ticket ▸" else "Start ticket ▸", lapIntent(c, "lap"))
+        b.addAction(0, "Next ticket ▸", lapIntent(c, "lap"))   // ticket 1 is already running the moment you stop
         if (lapping) b.addAction(0, "Undo", lapIntent(c, "undo"))
         if (firstStore) b.addAction(0, "Clock in", clockInIntent(c))
         try { NotificationManagerCompat.from(c).notify(ID_STORE, b.build()) } catch (_: SecurityException) {}
