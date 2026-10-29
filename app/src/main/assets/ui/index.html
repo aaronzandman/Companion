@@ -58,6 +58,10 @@ button{font:inherit}
 .tcOver{background:rgba(201,138,18,.12)}
 .tcOv{color:var(--muted)}
 .tcMissTxt{color:#C8372D}
+.callchk-h{font-size:12px;color:var(--muted);margin:6px 0 2px}
+.callchk{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:13px}
+.callchk input{margin-top:2px;width:18px;height:18px;flex:none}
+.callchk input:checked+span{color:var(--muted);text-decoration:line-through}
 .grp>.card[hidden]{display:none}
 details.more{margin-top:8px}details.more>summary{color:var(--road);font-weight:600;cursor:pointer;padding:6px 0}
 .sub3{font:700 15px var(--body);margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--line)}
@@ -405,7 +409,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.28.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.29.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -643,7 +647,7 @@ function render(){
     const parts=cl.pieces.filter(p=>p.seg.start===g.start);
     const payLine=parts.map(p=>`<span class="pay ${p.pay}">${payName[p.pay]}</span>${parts.length>1?`${tm(p.start)}–${p.live&&p.end>=g.end?"now":tm(p.end)} `:""}${hm(p.end-p.start)} hrs${p.mi?" · "+miTxt(p.mi):""}`).join("<br>");
     const fuelBtn=g.type==="STOP"?` <button class="fuel${g.tag==="FUEL"?" on":""}" data-fuel="${g.start}" data-on="${g.tag==="FUEL"?1:0}">⛽ ${g.tag==="FUEL"?"Fuel stop":"Fuel?"}</button>`:"";
-    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}</div>`:""}${lapLine(g)}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
+    return `<div class="seg"><i class="${g.type}"></i><div><b>${label(g)}</b>${fuelBtn}${g.type==="STORE"&&visitTickets(g).length?`<div class="t">Tickets ${esc(visitTickets(g).map(x=>"#"+x).join(", "))}</div>`:""}${lapLine(g)}<div class="t">${tm(g.start)} – ${g.live?'<span class="live">now</span>':tm(g.end)} · ${hm(g.end-g.start)} hrs</div><div class="t">${payLine}</div>${odoLine(g)}${callChecklist(g)}</div>${g.live?"":`<button class="x" data-seg="${g.start}" aria-label="Delete entry">×</button>`}</div>`; }).join("")
     : `<div class="empty">Nothing recorded today yet.</div>`;
   { // override buttons: only while the day runs; each shows until used (change or undo it in the log window)
     const ov=(S.overrides||{})[dayKey(Date.now())]||{}, anyWork=cl.pieces.some(p=>p.pay==="WORK");
@@ -655,6 +659,12 @@ function render(){
   if(!$("logDlg").hidden && !LOG_EDIT && !$("logDlg").contains(document.activeElement)) renderLog();
   $("segs").querySelectorAll("[data-fuel]").forEach(b=>b.onclick=()=>{ A.setTag(b.dataset.fuel,b.dataset.on==="1"?"":"FUEL"); refresh(); });
   $("segs").querySelectorAll("[data-seg]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this entry?")){ A.deleteSegment(b.dataset.seg); refresh(); } });
+  $("segs").querySelectorAll("[data-call]").forEach(cb=>cb.onchange=()=>{
+    const o=cb.dataset.call;
+    if(cb.checked){ localStorage.setItem("doneCall:"+o,"1"); let n=1; try{ n=A.storeLap(); }catch(e){} toast(n>1?`Call #${o} done — ticket ${n-1} saved, now timing ticket ${n}.`:`Call #${o} marked done.`); }
+    else { localStorage.removeItem("doneCall:"+o); try{ A.storeLapUndo(); }catch(e){} toast(`Call #${o} reopened — last split undone.`); }
+    refresh();
+  });
 
   renderMail(); renderMpg(); renderOil(); renderAuto(); renderUpd(); maybeAskOdo(); renderSap();
   // settings
@@ -709,6 +719,16 @@ function visitLaps(g){
   return out;
 }
 const lapLine=g=>{ const l=visitLaps(g); return l.length>1?`<div class="t">${l.map((d,i)=>`Ticket ${i+1}: ${hm(d)} hrs`).join(" · ")}</div>`:""; };
+// While you're at a store with more than one call, list them with checkboxes. Checking one saves its time and starts
+// the next ticket (a lap); unchecking merges the last two back together.
+function callChecklist(g){
+  if(!g.live || g.type!=="STORE") return "";
+  const orders=visitTickets(g); if(orders.length<2) return "";
+  const dmap={}; (S.dispatches||[]).forEach(d=>dmap[String(d.order)]=d);
+  const rows=orders.map(o=>{ const d=dmap[o]||{}, done=localStorage.getItem("doneCall:"+o)==="1";
+    return `<label class="callchk"><input type="checkbox" data-call="${esc(o)}"${done?" checked":""}><span>#${esc(o)}${d.description?" · "+esc(d.description):""}</span></label>`; }).join("");
+  return `<div class="callchk-h">Calls here — check one off to save its time and start the next</div>${rows}`;
+}
 function label(g){ if(g.type==="DRIVE") return "Driving"; if(g.type==="HOME") return "At home"; if(g.type==="STORE"){ const si=store(g.store); return `At store ${g.store}${si.city?" – "+si.city:""}`; } return g.tag==="FUEL"?"Fuel stop":"Stopped"; }
 function sendHint(){ const n=picked.size; $("sendBtn").textContent = n?`Send ${n} to Route Planner`:"Send to Route Planner"; $("sendHint").textContent = n?"Opens Route Planner and adds these calls to your list.":"Select calls to send, or tap Select new."; }
 

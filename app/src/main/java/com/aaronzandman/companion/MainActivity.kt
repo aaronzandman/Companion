@@ -445,6 +445,11 @@ class MainActivity : Activity() {
         /** Scan the SAP time-check barcode(s) from Route Planner (IW47 logged time), then compare in the page. */
         @JavascriptInterface fun scanTimeCheck() { tcChunks.clear(); tcId = ""; tcTotal = 0; launchScan("Scan the SAP time-check barcode") }
 
+        /** Checking off a call at a store: save the current ticket's time and start the next (a lap). */
+        @JavascriptInterface fun storeLap(): Int = Tracker.storeLap(this@MainActivity)
+        /** Un-checking a call: merge the last two tickets back into one. */
+        @JavascriptInterface fun storeLapUndo(): Int = Tracker.storeLapUndo(this@MainActivity)
+
         /** Reads every dispatch text on the phone (in the background). Calls onImportAll(newCount, total). */
         @JavascriptInterface fun importAll() {
             if (!granted(Manifest.permission.READ_SMS)) { askSms(); return }
