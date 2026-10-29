@@ -409,7 +409,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.29.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.30.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1500,6 +1500,11 @@ function trackedByStoreDay(dates){
   });
   return out;
 }
+function trackedDriveByDay(dates){
+  const want=new Set(dates), out={};
+  (S.segments||[]).forEach(g=>{ if(g.type!=="DRIVE") return; const ymd=tcYmd(g.start); if(!want.has(ymd)) return; out[ymd]=(out[ymd]||0)+Math.max(0,(g.end-g.start))/3600000; });
+  return out;
+}
 window.onTimeCheck=(json)=>{
   let p; try{ p=JSON.parse(json); }catch(e){ window.tcScanFail("That barcode couldn't be read. Try again."); return; }
   if(!p||p.t!=="iw47"||!Array.isArray(p.d)){ window.tcScanFail("That isn't a SAP time-check barcode."); return; }
@@ -1508,7 +1513,8 @@ window.onTimeCheck=(json)=>{
   // logged[ymd][store]=hours
   const logged={}; (p.s||[]).forEach(([st,di,h])=>{ const ymd=dates[di]; if(!ymd) return; (logged[ymd]=logged[ymd]||{}); logged[ymd][st]=(logged[ymd][st]||0)+h; });
   const overhead={}; (p.o||[]).forEach(([di,h])=>{ const ymd=dates[di]; if(ymd) overhead[ymd]=(overhead[ymd]||0)+h; });
-  const tracked=trackedByStoreDay(dates);
+  const travel={}; (p.tr||[]).forEach(([di,h])=>{ const ymd=dates[di]; if(ymd) travel[ymd]=(travel[ymd]||0)+h; });
+  const tracked=trackedByStoreDay(dates), drive=trackedDriveByDay(dates);
   // Build per-day comparison + weekly rollup
   let totTrk=0, totLog=0, totMiss=0; const weekTrk={}, weekLog={}; let html="";
   const dayBlocks=dates.map(ymd=>{
@@ -1523,15 +1529,16 @@ window.onTimeCheck=(json)=>{
       rows+=`<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td>${note}</td></tr>`;
     });
     totMiss+=dayMiss;
+    const tv=(travel[ymd]||drive[ymd])?`<tr class="tcOv"><td>Travel</td><td class="num">${drive[ymd]?drive[ymd].toFixed(2):"—"}</td><td class="num">${travel[ymd]?travel[ymd].toFixed(2):"—"}</td><td>drive time (not store)</td></tr>`:"";
     const ov=overhead[ymd]?`<tr class="tcOv"><td>Overhead</td><td class="num">—</td><td class="num">${overhead[ymd].toFixed(2)}</td><td>not tied to a store</td></tr>`:"";
     return `<div class="tcDay"><div class="tcDayHd">${tcNice(ymd)} <span class="hint">${dayMiss>=0.1?("· missing "+dayMiss.toFixed(2)+" hr"):"· ok"}</span></div>
-      <table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th>Flag</th></tr>${rows}${ov}</table></div>`;
+      <table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th>Flag</th></tr>${rows}${tv}${ov}</table></div>`;
   }).join("");
   // weekly rollup
   const wStores=[...new Set([...Object.keys(weekTrk),...Object.keys(weekLog)])].sort();
   const wRows=wStores.map(st=>{ const tk=weekTrk[st]||0, lg=weekLog[st]||0, diff=tk-lg; const cls=diff>=0.1?"tcMiss":(lg-tk>=0.1?"tcOver":""); return `<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td class="num">${diff>=0.1?("+"+diff.toFixed(2)):(lg-tk>=0.1?("-"+(lg-tk).toFixed(2)):"✓")}</td></tr>`; }).join("");
   html=`<h2>Time check — ${tcNice(dates[0])}–${tcNice(dates[dates.length-1])}</h2>
-    <p class="hint">Tracked ${totTrk.toFixed(2)} hr · logged in SAP ${totLog.toFixed(2)} hr · <b class="${totMiss>=0.1?"tcMissTxt":""}">${totMiss>=0.1?("missing "+totMiss.toFixed(2)+" hr"):"nothing missing"}</b>. Compared only for the day(s) you imported.</p>
+    <p class="hint">At stores: tracked ${totTrk.toFixed(2)} hr · SAP on-site ${totLog.toFixed(2)} hr · <b class="${totMiss>=0.1?"tcMissTxt":""}">${totMiss>=0.1?("missing "+totMiss.toFixed(2)+" hr"):"nothing missing"}</b>. Travel is logged separately (shown per day), so it isn't counted here. Compared only for the day(s) you imported.</p>
     <div class="tcWeek"><div class="tcDayHd">Per store (whole import)</div><table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th class="num">Diff</th></tr>${wRows}</table></div>
     ${dayBlocks}`;
   const out=$("tcOut"); out.hidden=false; out.innerHTML=html; showTab("timecheck");
