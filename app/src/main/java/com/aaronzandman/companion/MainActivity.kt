@@ -377,6 +377,7 @@ class MainActivity : Activity() {
                     .put("senderFilter", Store.get(c, "senderFilter", ""))
                     .put("smsOn", Store.get(c, "smsOn", "1") == "1")
                     .put("autoPlanner", Store.get(c, "autoPlanner", "0") == "1")
+                    .put("autoAddPlanner", Store.get(c, "autoAddPlanner", "0") == "1")
                     .put("workEmail", Store.get(c, "workEmail", ""))
                     .put("autoEmail", Store.get(c, "autoEmail", "1") == "1")
                     .put("autoStartBt", Store.get(c, "autoStartBt", "0") == "1")
@@ -780,7 +781,7 @@ class MainActivity : Activity() {
             if (key == "odoDrift") { Store.put(this@MainActivity, key, value.take(4000)); return }   // how far off the virtual odometer was at each weekly check
             if (key == "oilInterval") { value.toIntOrNull()?.takeIf { it in 1000..20000 }?.let { Store.put(this@MainActivity, key, it.toString()) }; return }
             if (key == "workEmail") { if (value.isEmpty() || EMAIL.matches(value.trim())) Store.put(this@MainActivity, key, value.trim()); return }
-            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast", "vanHold", "sapDistricts", "sapTypes", "sapAutoSms", "sapUrl")) {
+            if (key in setOf("edition", "radius", "senderFilter", "smsOn", "autoEmail", "autoPlanner", "autoAddPlanner", "autoStartBt", "autoStartAddr", "autoStartName", "autoEndHome", "autoBtDrive", "autoBoot", "standby", "vanWatch", "vanAclAddr", "vanAclName", "dayToast", "vanHold", "sapDistricts", "sapTypes", "sapAutoSms", "sapUrl")) {
                 Store.put(this@MainActivity, key, value.take(80))
                 if (key == "vanWatch") { VanWatch.start(this@MainActivity); VanLink.start(this@MainActivity) }
                 if (key == "vanHold" || key == "vanAclAddr") { DiagLog.w(this@MainActivity, "SET", "$key = $value"); if (key == "vanHold" && value != "1") VanSession.stop(); VanWatch.start(this@MainActivity) }

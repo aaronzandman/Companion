@@ -63,6 +63,15 @@ object DispatchParser {
         return plannerLinkJson(SITE, Store.get(c, "edition", "VA"), o)
     }
 
+    /** Link that opens the Route Planner and ADDS these new dispatch(es) with no prompt (auto import on a new text). */
+    fun addLink(c: Context, found: List<JSONObject>): String? {
+        if (found.isEmpty()) return null
+        val rows = found.map { plannerRow(it) }
+        val o = JSONObject().put("v", 1).put("a", 1).put("auto", 1).put("src", "companion").put("c", rows.joinToString("\n"))
+        try { val u = JSONObject(Store.get(c, "uid", "")); if (Regex("^[0-9A-Z]{4}-[0-9A-Z]{4}$").matches(u.optString("i"))) o.put("u", u) } catch (_: Exception) {}
+        return plannerLinkJson(SITE, Store.get(c, "edition", "VA"), o)
+    }
+
     /** Link that opens the Route Planner and offers to ADD these calls (handoff format, data after #, never sent to a server). */
     fun plannerLink(site: String, edition: String, rows: List<String>, uid: JSONObject? = null, extra: JSONObject? = null): String {
         val o = JSONObject().put("v", 1).put("a", 1).put("src", "companion").put("c", rows.joinToString("\n"))

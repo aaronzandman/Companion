@@ -250,6 +250,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
         <select id="edition"><option value="VA">Virginia</option><option value="AL">Alabama</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="KY">Kentucky</option><option value="NC">North Carolina</option><option value="SC">South Carolina</option><option value="TN">Tennessee</option><option value="ALL">Company-wide</option></select></label>
       <label class="set"><span><b>Read dispatch texts</b><br><span class="hint">Turn off to stop reading texts.</span></span><input type="checkbox" class="sw" id="smsOn"></label>
       <label class="set"><span><b>New calls to Route Planner</b><br><span class="hint">Each new dispatch text offers Reroute or Keep my route and adds the call to your planner.</span></span><input type="checkbox" class="sw" id="autoPlanner"></label>
+      <label class="set"><span><b>Auto-add to Route Planner</b><br><span class="hint">When a dispatch text arrives, open Route Planner and add the call automatically — no tap. Works best while the app is open or your day is running.</span></span><input type="checkbox" class="sw" id="autoAddPlanner"></label>
       <label class="set"><span><b>Only from sender</b><br><span class="hint">Optional: part of the dispatch number or name.</span></span><input type="text" id="sender" placeholder="Any sender" style="width:140px"></label>
       <div class="set" style="display:block;padding:12px 0;border-top:1px solid var(--line)"><b>Calls from SAP</b>
         <div class="hint" id="sapHint" style="margin:2px 0 6px">Sign in once; SAP becomes your call list — it replaces everything with your current SAP calls (completed ones drop off). Stays on this phone.</div>
@@ -404,7 +405,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.27.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.28.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -674,7 +675,7 @@ function render(){
   $("homeClear").hidden=!st.home; $("homeSave").textContent=st.home?"Update home to my current location":"Save my current location as home";
   if(document.activeElement!==$("workEmail")) $("workEmail").value=st.workEmail||"";
   $("autoEmail").checked=!!st.workEmail && st.autoEmail!==false; $("autoEmail").disabled=!st.workEmail;
-  $("autoPlanner").checked=!!st.autoPlanner;
+  $("autoPlanner").checked=!!st.autoPlanner; $("autoAddPlanner").checked=!!st.autoAddPlanner;
   $("edition").value=st.edition||"VA"; $("radius").value=st.radius||"400"; $("smsOn").checked=st.smsOn!==false;
   const ob=S.obd||{}, lastO=(S.odo||[]).slice(-1)[0];
   $("obdNow").innerHTML = ob.addr ? `Adapter: ${esc(ob.name||ob.addr)}${lastO?` · last reading ${fmtMi(lastO.mi)} mi, ${when(lastO.t)}`:""}` : "No adapter chosen yet.";
@@ -1327,6 +1328,7 @@ $("autoEmail").onchange=e=>{ A.setSetting("autoEmail",e.target.checked?"1":"0");
 $("edition").onchange=e=>A.setSetting("edition",e.target.value);
 $("radius").onchange=e=>A.setSetting("radius",e.target.value);
 $("autoPlanner").onchange=e=>{ A.setSetting("autoPlanner",e.target.checked?"1":"0"); if(e.target.checked) toast("New calls will offer Reroute now or Keep my route in the notification."); };
+$("autoAddPlanner").onchange=e=>{ A.setSetting("autoAddPlanner",e.target.checked?"1":"0"); if(e.target.checked) toast("New dispatches will open Route Planner and add the call automatically."); };
 $("smsOn").onchange=e=>A.setSetting("smsOn",e.target.checked?"1":"0");
 $("sender").onchange=e=>A.setSetting("senderFilter",e.target.value.trim());
 $("appSet").onclick=()=>A.openAppSettings();
