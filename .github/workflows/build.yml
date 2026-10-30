@@ -50,13 +50,14 @@ jobs:
       - name: Build the app
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: gradle :app:assembleRelease :diag:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+        run: gradle :app:assembleRelease :diag:assembleRelease :mousepad:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Rename
         id: v
         run: |
           cp app/build/outputs/apk/release/app-release.apk Companion.apk
           cp diag/build/outputs/apk/release/diag-release.apk BTDiag.apk
+          cp mousepad/build/outputs/apk/release/mousepad-release.apk MousePadSurvey.apk
           echo "ver=$(grep -oP 'appVersion = "\K[0-9.]+' app/build.gradle.kts).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Signer fingerprint
@@ -77,11 +78,13 @@ jobs:
             Latest: https://github.com/AaronZandman/Companion/releases/latest/download/Companion.apk
 
             BT Diagnostic (separate helper app): https://github.com/AaronZandman/Companion/releases/latest/download/BTDiag.apk
+            Mouse Pad Survey (separate app): https://github.com/AaronZandman/Companion/releases/latest/download/MousePadSurvey.apk
 
             Signing certificate SHA-256: ${{ steps.sig.outputs.fp }}
           files: |
             Companion.apk
             BTDiag.apk
+            MousePadSurvey.apk
           make_latest: true
 
       - name: Save the build log for review (only if the build failed)
