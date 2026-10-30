@@ -69,6 +69,36 @@ class MainActivity : Activity() {
     }
     private fun label(e: JSONObject) = label(e.optString("store"), e.optString("ws"))
 
+    // Workstation name -> default machine ID (first in the range; editable after picking). From the Publix reference list.
+    private val STATIONS = listOf(
+        "Select workstation…" to "",
+        "Cash Office" to "0051",
+        "CBT / Training (0060–0069)" to "0060",
+        "Wine Steward / Greenwise" to "0070",
+        "ATM (0071–0073)" to "0071",
+        "Oasis Self Service / PASSport (0085–0086)" to "0085",
+        "Store Manager" to "0089",
+        "Customer Service (0095/0097)" to "0095",
+        "Western Union" to "0094",
+        "Oasis Enterprise" to "0096",
+        "General Office" to "0098",
+        "Direct Store Delivery / Receiving" to "0099",
+        "Department Manager / SIM (2096–2099)" to "2096",
+        "Liquor Store" to "2799",
+        "Produce" to "3099",
+        "Deli" to "4099",
+        "Bakery (5090–5093)" to "5090",
+        "Bakery Manager" to "5094",
+        "Time Clock (7510–7519)" to "7510",
+        "Event Planner" to "7640",
+        "Catering Events" to "7641",
+        "Meals Catering" to "7642",
+        "Lead Chef" to "7644",
+        "Sous Chef" to "7645",
+        "Central Pickup (7650–7651)" to "7650",
+        "Other / not listed" to ""
+    )
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private val photosDir by lazy { File(filesDir, "photos").apply { mkdirs() } }
     private val entriesFile by lazy { File(filesDir, "entries.json") }
@@ -161,7 +191,11 @@ class MainActivity : Activity() {
             adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220)))
 
-        v.addView(TextView(this).apply { text = "Workstation ID (4-digit machine ID, e.g. 0099)"; textSize = 13f; setTextColor(MUTED); setPadding(0, dp(8), 0, 0) })
+        v.addView(TextView(this).apply { text = "Workstation (pick a name to fill the ID)"; textSize = 13f; setTextColor(MUTED); setPadding(0, dp(8), 0, 0) })
+        val stationSp = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, STATIONS.map { it.first }) }
+        v.addView(stationSp)
+
+        v.addView(TextView(this).apply { text = "Workstation ID (4-digit; edit for the exact one)"; textSize = 13f; setTextColor(MUTED); setPadding(0, dp(8), 0, 0) })
         val wsIn = EditText(this).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER; hint = "e.g. 0099"; textSize = 18f; setText(prefs().getString("ws", "")) }
         v.addView(wsIn)
         val lbl = TextView(this).apply { textSize = 14f; setTextColor(GREEN); setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(4), 0, 0) }
@@ -173,20 +207,33 @@ class MainActivity : Activity() {
         })
         v.addView(lbl)
 
+        // Picking a workstation name fills the ID (still editable). Remember the last pick.
+        stationSp.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                prefs().edit().putInt("stationPos", pos).apply()
+                val defId = STATIONS[pos].second
+                if (defId.isNotEmpty()) wsIn.setText(defId)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        stationSp.setSelection(prefs().getInt("stationPos", 0).coerceIn(0, STATIONS.size - 1))
+
         val pad = switchRow("Mouse pad present", true)
         val use = switchRow("Mouse pad in use", true)
         v.addView(pad.first); v.addView(use.first)
         val note = EditText(this).apply { hint = "Note (optional)"; textSize = 15f }
         v.addView(note, lp(dp(6)))
 
+        val scroll = ScrollView(this).apply { addView(v) }
         AlertDialog.Builder(this)
             .setTitle("Store ${storeIn.text} — record it")
-            .setView(v)
+            .setView(scroll)
             .setPositiveButton("Save") { _, _ ->
                 val ws = wsIn.text.toString().trim()
                 if (ws.filter { it.isDigit() }.isEmpty()) { toast("Enter the workstation ID."); photo.delete(); return@setPositiveButton }
                 prefs().edit().putString("ws", ws).apply()
-                saveEntry(photo, ws, pad.second.isChecked, use.second.isChecked, note.text.toString().trim())
+                val station = if (stationSp.selectedItemPosition > 0) STATIONS[stationSp.selectedItemPosition].first else ""
+                saveEntry(photo, station, ws, pad.second.isChecked, use.second.isChecked, note.text.toString().trim())
             }
             .setNegativeButton("Discard") { _, _ -> photo.delete() }
             .setCancelable(false)
@@ -207,10 +254,10 @@ class MainActivity : Activity() {
     private fun load(): JSONArray = try { JSONArray(entriesFile.readText()) } catch (_: Exception) { JSONArray() }
     private fun save(a: JSONArray) { try { entriesFile.writeText(a.toString()) } catch (_: Exception) {} }
 
-    private fun saveEntry(photo: File, ws: String, pad: Boolean, use: Boolean, note: String) {
+    private fun saveEntry(photo: File, station: String, ws: String, pad: Boolean, use: Boolean, note: String) {
         val store = storeIn.text.toString().trim()
         val e = JSONObject().put("id", System.currentTimeMillis()).put("store", store)
-            .put("ws", ws).put("pad", pad).put("use", use).put("note", note).put("t", System.currentTimeMillis()).put("photo", photo.name)
+            .put("station", station).put("ws", ws).put("pad", pad).put("use", use).put("note", note).put("t", System.currentTimeMillis()).put("photo", photo.name)
         (if (curLat != null && curLng != null) Pair(curLat!!, curLng!!) else lastLocation())?.let { e.put("lat", it.first).put("lng", it.second) }
         val a = load(); a.put(e); save(a)
         toast("Saved — " + label(store, ws))
@@ -257,7 +304,7 @@ class MainActivity : Activity() {
             scaleType = ImageView.ScaleType.CENTER_CROP
         }, LinearLayout.LayoutParams(dp(64), dp(64)))
         val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, dp(6), 0) }
-        mid.addView(TextView(this).apply { text = label(e); textSize = 16f; setTypeface(typeface, Typeface.BOLD) })
+        mid.addView(TextView(this).apply { text = label(e) + (if (e.optString("station").isNotEmpty()) "  ·  " + e.optString("station") else ""); textSize = 15f; setTypeface(typeface, Typeface.BOLD) })
         mid.addView(TextView(this).apply {
             text = "Pad: ${if (e.optBoolean("pad")) "Present" else "None"}  ·  In use: ${if (e.optBoolean("use")) "Yes" else "No"}"
             textSize = 13f; setTextColor(if (e.optBoolean("pad") && e.optBoolean("use")) GREEN else MUTED)
@@ -305,6 +352,7 @@ class MainActivity : Activity() {
         val pad = w * 0.02f; val lineH = fs * 1.3f
         val lines = listOf(
             "${label(e)}    Pad: ${if (e.optBoolean("pad")) "YES" else "NO"}    In use: ${if (e.optBoolean("use")) "YES" else "NO"}",
+            e.optString("station"),
             SimpleDateFormat("M/d/yyyy h:mm a", Locale.US).format(Date(e.optLong("t"))) +
                 (if (e.has("lat")) "   ${"%.5f".format(e.optDouble("lat"))}, ${"%.5f".format(e.optDouble("lng"))}" else "")
         ).filter { it.isNotBlank() } + (if (e.optString("note").isNotEmpty()) listOf(e.optString("note")) else emptyList())
@@ -321,7 +369,7 @@ class MainActivity : Activity() {
         if (a.length() == 0) { toast("No entries to export yet."); return }
         val dir = File(cacheDir, "exports").apply { mkdirs() }; dir.listFiles()?.forEach { it.delete() }
         val zip = File(dir, "MousePadSurvey_${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())}.zip")
-        val csv = StringBuilder("Label,Store,Workstation,MousePad,InUse,Note,When,Lat,Lng,File\r\n")
+        val csv = StringBuilder("Label,Store,Workstation,WorkstationID,MousePad,InUse,Note,When,Lat,Lng,File\r\n")
         val used = HashMap<String, Int>()
         try {
             ZipOutputStream(BufferedOutputStream(FileOutputStream(zip))).use { zos ->
@@ -331,7 +379,7 @@ class MainActivity : Activity() {
                     val base = label(e); val n = (used[base] ?: 0) + 1; used[base] = n
                     val fname = if (n == 1) "$base.jpg" else "${base}_$n.jpg"
                     zos.putNextEntry(ZipEntry(fname)); zos.write(bytes); zos.closeEntry()
-                    csv.append(csvCell(base)).append(",").append(csvCell(e.optString("store"))).append(",").append(csvCell(e.optString("ws"))).append(",").append(if (e.optBoolean("pad")) "Yes" else "No").append(",")
+                    csv.append(csvCell(base)).append(",").append(csvCell(e.optString("store"))).append(",").append(csvCell(e.optString("station"))).append(",").append(csvCell(e.optString("ws"))).append(",").append(if (e.optBoolean("pad")) "Yes" else "No").append(",")
                         .append(if (e.optBoolean("use")) "Yes" else "No").append(",").append(csvCell(e.optString("note"))).append(",")
                         .append(SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(e.optLong("t")))).append(",")
                         .append(if (e.has("lat")) e.optDouble("lat").toString() else "").append(",")
