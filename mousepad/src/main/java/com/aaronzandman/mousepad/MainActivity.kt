@@ -140,8 +140,8 @@ class MainActivity : Activity() {
         val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
         val i = Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT, uri)
             .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        if (i.resolveActivity(packageManager) == null) { toast("No camera app found."); return }
-        @Suppress("DEPRECATION") startActivityForResult(i, REQ_PHOTO)
+        try { @Suppress("DEPRECATION") startActivityForResult(i, REQ_PHOTO) }
+        catch (e: Exception) { pendingPhoto = null; f.delete(); toast("Couldn't open the camera app.") }
     }
 
     @Deprecated("Deprecated in Java")
