@@ -35,6 +35,8 @@ jobs:
           mkdir -p app/src/main/assets
           curl -fsSL https://raw.githubusercontent.com/AaronZandman/Route2/main/source/stores.json -o app/src/main/assets/stores.json
           python3 -c "import json;print(len(json.load(open('app/src/main/assets/stores.json'))),'stores')"
+          mkdir -p mousepad/src/main/assets
+          cp app/src/main/assets/stores.json mousepad/src/main/assets/stores.json
           # Same anonymous usage-count site as Route Planner (blank = nothing is sent).
           code=$(curl -fsSL https://raw.githubusercontent.com/AaronZandman/Route2/main/source/analytics.txt 2>/dev/null | tr -cd 'a-z0-9-' || true)
           sed -i "s/@@GC_CODE@@/${code}/" app/src/main/assets/ui/index.html

@@ -5,3 +5,4 @@ build/
 local.properties
 app/src/main/assets/stores.json
 *.apk
+mousepad/src/main/assets/stores.json
