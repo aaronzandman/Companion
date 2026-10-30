@@ -59,7 +59,8 @@ class MainActivity : Activity() {
     private var pendingPhoto: File? = null
     private var curLat: Double? = null
     private var curLng: Double? = null
-    private val RECIPIENT = "Aaron.zandman@publix.com"
+    private lateinit var recipientIn: EditText
+    private val DEFAULT_RECIPIENT = "Aaron.zandman@publix.com"
 
     /** Label Sxxxxyyyy: S + 4-digit store + 4-digit workstation id (padded with leading zeros). */
     private fun label(store: String, ws: String): String {
@@ -137,7 +138,19 @@ class MainActivity : Activity() {
         col.addView(btn("📷  Take workstation photo", true) { takePhoto() }, lp(dp(10)))
         summary = TextView(this).apply { textSize = 14f; setTextColor(GREEN); setPadding(0, dp(12), 0, dp(4)); setTypeface(typeface, Typeface.BOLD) }
         col.addView(summary)
-        col.addView(btn("📤  Export & email (ZIP)", false) { export() }, lp(dp(4)))
+
+        col.addView(TextView(this).apply { text = "Email the ZIP to (saved)"; textSize = 13f; setTextColor(MUTED); setPadding(0, dp(8), 0, 0) })
+        recipientIn = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setText(prefs().getString("recipient", DEFAULT_RECIPIENT)); textSize = 15f; setSingleLine()
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(s: android.text.Editable?) { prefs().edit().putString("recipient", s?.toString()?.trim() ?: "").apply() }
+                override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+                override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+            })
+        }
+        col.addView(recipientIn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        col.addView(btn("📤  Export & email (ZIP)", false) { export() }, lp(dp(6)))
         col.addView(btn("Clear all entries", false) { clearAll() }, lp(dp(2)))
 
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(10), 0, 0) }
@@ -397,9 +410,10 @@ class MainActivity : Activity() {
 
         val backup = saveBackup(zip)
         val uri = FileProvider.getUriForFile(this, "$packageName.files", zip)
+        val recipient = (prefs().getString("recipient", DEFAULT_RECIPIENT) ?: DEFAULT_RECIPIENT).trim()
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "application/zip"; putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_EMAIL, arrayOf(RECIPIENT))
+            if (recipient.isNotEmpty()) putExtra(Intent.EXTRA_EMAIL, arrayOf(recipient))
             putExtra(Intent.EXTRA_SUBJECT, subject.trim())
             putExtra(Intent.EXTRA_TEXT, body); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -427,42 +441,49 @@ class MainActivity : Activity() {
     private fun csvCell(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
 
     // ---------- store auto-detect from location ----------
-    override fun onResume() {
-        super.onResume()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) detectStore(false)
-    }
+    private var locListener: LocationListener? = null
+
+    override fun onResume() { super.onResume(); startLocation() }
+    override fun onPause() { super.onPause(); stopLocation() }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_LOC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) detectStore(false)
+        if (requestCode == REQ_LOC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startLocation()
     }
 
-    @SuppressLint("MissingPermission")
+    /** The Detect button just ensures permission; location updates run automatically while the app is open. */
     private fun detectStore(userTap: Boolean) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             if (userTap) try { requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQ_LOC) } catch (_: Exception) {}
             return
         }
+        startLocation()
+    }
+
+    /** Continuously update the detected store from location while the app is in the foreground (no tap needed). */
+    @SuppressLint("MissingPermission")
+    private fun startLocation() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        try { lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }?.let { applyNearest(it.latitude, it.longitude) } } catch (_: Exception) {}
+        stopLocation()
+        val listener = object : LocationListener {
+            override fun onLocationChanged(l: Location) { applyNearest(l.latitude, l.longitude) }
+            override fun onProviderDisabled(p: String) {}
+            override fun onProviderEnabled(p: String) {}
+            @Deprecated("Deprecated in Java") override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+        }
+        locListener = listener
         try {
-            val last = lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }
-            if (last != null) applyNearest(last.latitude, last.longitude) else if (userTap && storeStatus.text.isNullOrEmpty()) storeStatus.text = "Getting your location…"
-            val provider = when {
-                lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-                else -> null
-            }
-            if (provider != null) {
-                val listener = object : LocationListener {
-                    override fun onLocationChanged(l: Location) { applyNearest(l.latitude, l.longitude); try { lm.removeUpdates(this) } catch (_: Exception) {} }
-                    override fun onProviderDisabled(p: String) {}
-                    override fun onProviderEnabled(p: String) {}
-                    @Deprecated("Deprecated in Java") override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
-                }
-                lm.requestLocationUpdates(provider, 0L, 0f, listener, mainLooper)
-                storeStatus.postDelayed({ try { lm.removeUpdates(listener) } catch (_: Exception) {} }, 15000)
-            }
+            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 5f, listener, mainLooper)
+            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000L, 5f, listener, mainLooper)
+            if (storeStatus.text.isNullOrEmpty()) storeStatus.text = "Getting your location…"
         } catch (_: Exception) {}
+    }
+
+    private fun stopLocation() {
+        val l = locListener ?: return; locListener = null
+        try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(l) } catch (_: Exception) {}
     }
 
     private fun applyNearest(lat: Double, lng: Double) {
