@@ -45,12 +45,15 @@ class MainActivity : android.app.Activity() {
 
     private lateinit var storeIn: EditText
     private lateinit var storeStatus: TextView
+    private lateinit var badge: TextView
     private lateinit var tally: TextView
     private lateinit var list: LinearLayout
     private lateinit var summary: TextView
     private lateinit var recipientIn: EditText
     private var curLat: Double? = null
     private var curLng: Double? = null
+    private var activeStore = ""      // store we're currently counting for
+    private var dismissedStore = ""   // store for which the "already surveyed" prompt was already answered
     private val DEFAULT_RECIPIENT = "Aaron.zandman@publix.com"
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -78,12 +81,19 @@ class MainActivity : android.app.Activity() {
         storeIn = EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER; hint = "detecting…"
             setText(prefs().getString("store", "")); textSize = 18f
-            addTextChangedListener(watcher { prefs().edit().putString("store", it).apply(); renderTally() })
+            addTextChangedListener(watcher { prefs().edit().putString("store", it).apply(); syncStore() })
         }
         col.addView(storeIn, mw())
         storeStatus = TextView(this).apply { textSize = 12f; setTextColor(MUTED); setPadding(0, dp(2), 0, 0) }
         col.addView(storeStatus)
         col.addView(btn("📍  Detect store from my location", false, GREEN) { detectStore(true) }, lp(dp(6)))
+
+        // Clear indicator of whether the current store has been surveyed yet
+        badge = TextView(this).apply {
+            textSize = 15f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10)); visibility = View.GONE
+        }
+        col.addView(badge, lp(dp(10)))
 
         // The two tally buttons
         col.addView(TextView(this).apply {
@@ -120,6 +130,9 @@ class MainActivity : android.app.Activity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
             try { requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQ_LOC) } catch (_: Exception) {}
         render()
+        // Don't nag with the "already surveyed" prompt on launch for the store we open to.
+        activeStore = storeIn.text.toString().trim().filter { it.isDigit() }
+        dismissedStore = activeStore
         detectStore(false)
     }
 
@@ -203,11 +216,53 @@ class MainActivity : android.app.Activity() {
     // ---------- display ----------
     private fun render() { renderTally(); renderList() }
 
+    /** Called whenever the store value changes (typed or auto-detected). Alerts once if already surveyed. */
+    private fun syncStore() {
+        val s = storeIn.text.toString().trim().filter { it.isDigit() }
+        renderTally()
+        if (s == activeStore) return
+        activeStore = s
+        if (s.isNotEmpty() && s != dismissedStore && ((counts()[s]?.total ?: 0) > 0)) showAlready(s)
+    }
+
+    /** A store we just landed on already has counts — ask whether to wipe it or keep adding. */
+    private fun showAlready(store: String) {
+        dismissedStore = store
+        val t = counts()[store] ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Store $store already surveyed")
+            .setMessage("This store already has ${t.total} counted (Yes ${t.yes}, No ${t.no}).\n\nDelete the previous survey and start over, or keep adding to it?")
+            .setPositiveButton("Delete & start over") { _, _ ->
+                val a = load(); val out = JSONArray()
+                for (i in 0 until a.length()) { val e = a.getJSONObject(i); if (e.optString("store") != store) out.put(e) }
+                save(out); render(); toast("Cleared store $store — starting fresh.")
+            }
+            .setNegativeButton("Keep adding", null)
+            .setCancelable(false).show()
+    }
+
     private fun renderTally() {
         val store = storeIn.text.toString().trim().filter { it.isDigit() }
-        val t = if (store.isEmpty()) null else counts()[store]
-        tally.text = if (store.isEmpty()) "Enter or detect a store to start counting."
-            else "Store ${store} — Yes ${t?.yes ?: 0} · No ${t?.no ?: 0} · ${t?.total ?: 0} counted"
+        if (store.isEmpty()) {
+            badge.visibility = View.GONE
+            tally.text = "Enter or detect a store to start counting."
+            return
+        }
+        val t = counts()[store]
+        val total = t?.total ?: 0
+        badge.visibility = View.VISIBLE
+        if (total == 0) {
+            badge.text = "🆕  New store — not surveyed yet"
+            badge.background = pill(GREEN)
+        } else {
+            badge.text = "✓  Already surveyed — $total counted here"
+            badge.background = pill(Color.parseColor("#B5791F"))
+        }
+        tally.text = "Store ${store} — Yes ${t?.yes ?: 0} · No ${t?.no ?: 0} · $total counted"
+    }
+
+    private fun pill(color: Int) = android.graphics.drawable.GradientDrawable().apply {
+        cornerRadius = dp(10).toFloat(); setColor(color)
     }
 
     private fun renderList() {
