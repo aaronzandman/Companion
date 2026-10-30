@@ -236,6 +236,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div id="mpgCard">
       <h3 class="sub3">Log trips in MPG</h3>
       <div class="hint">One trip per drive, once the day has ended. You check each trip and tap Save in MPG.</div>
+      <div class="warn" id="mpgMiss" hidden style="margin:10px 0 0"></div>
       <select id="mpgDay" hidden></select>
       <div id="mpgList"></div>
       <button class="btn" id="mpgBtn">Log trips in MPG</button>
@@ -409,7 +410,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.30.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.31.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1018,6 +1019,14 @@ function renderMpg(){
     : `<div class="empty">No drives recorded that day.</div>`;
   const left=trips.filter(t=>!done[t.key]).length;
   $("mpgBtn").disabled=!left||live; $("mpgBtn").textContent=left?`Log ${left} trip${left>1?"s":""} in MPG`:"All trips logged";
+  // Warn if any earlier day still has mileage that was never logged in MPG.
+  const miss=missingMpgDays(k), mw=$("mpgMiss");
+  if(miss.length){
+    const names=miss.map(d=>dayName(new Date(d+"T12:00:00"))).join(", ");
+    mw.innerHTML=`<b>${miss.length} earlier day${miss.length>1?"s":""} not logged in MPG:</b> ${esc(names)}. `+
+      `<a href="#" onclick="logMissingFirst();return false">Log ${miss.length>1?"the oldest":"it"} now</a>`;
+    mw.hidden=false;
+  } else mw.hidden=true;
   $("mpgAgain").hidden=live||!trips.some(t=>done[t.key]);
   $("mpgNote").textContent = live ? "Finish your day first (End my day), then log its trips." : "MPG fills in the date and starting odometer. Companion fills in the description, ending odometer and Personal." + (trips.some(t=>!t.adapter)?" Without the adapter, ending odometer = MPG's start + the miles Companion measured (≈ numbers here are estimates).":"");
 }
@@ -1280,10 +1289,33 @@ window.onFordTest=r=>{ $("fordTestBtn").disabled=false; $("fordTestBtn").textCon
   if(!(r.code>=200&&r.code<300)){ o.textContent=`Ford returned an error (${r.code}).\n${r.error||""}`; return; }
   o.textContent=(r.miles!=null?`Odometer: ${Math.round(r.miles).toLocaleString()} miles (Ford last updated it ${r.odoTime?new Date(r.odoTime).toLocaleString():"at an unknown time"})\n`:"Ford didn't include the odometer.\n")+`Ford sent ${ (r.keys||[]).length } kinds of data: ${(r.keys||[]).join(", ")}`; refresh(); };
 function mpgLeft(k){ const done=S.mpgDone||{}; return mpgTrips(segsForDay(k),false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="("); }
+// Finished days (not live) earlier than `before` that still have unlogged MPG trips, oldest first.
+function missingMpgDays(before){
+  return [...new Set(allSegs().map(g=>dayKey(g.start)))]
+    .filter(d=> d<before && !segsForDay(d).some(g=>g.live) && mpgLeft(d).length>0)
+    .sort();
+}
+// Jump the Day picker to the oldest un-logged earlier day and open it in MPG.
+function logMissingFirst(){
+  const miss=missingMpgDays($("mpgDay").value); if(!miss.length) return;
+  const oldest=miss[0];
+  $("mpgDay").value=oldest; const md=$("mailDay"); if(md){ md.value=oldest; } renderMpg();
+  openMpgDay(oldest);
+}
 $("mpgBtn").onclick=()=>openMpgDay($("mpgDay").value);
 // Mileage goes to MPG only once the day is over: End my day (or arriving home) offers the whole day's trips as one batch.
 function openMpgDay(k){
   const done=S.mpgDone||{};
+  // If an earlier day was never submitted, offer to log the oldest missing day first.
+  const miss=missingMpgDays(k);
+  if(miss.length){
+    const names=miss.map(d=>dayName(new Date(d+"T12:00:00"))).join(", ");
+    const oldest=miss[0], thisName=k===dayKey(Date.now())?"today":dayName(new Date(k+"T12:00:00"));
+    if(confirm(`${miss.length} earlier day${miss.length>1?"s have":" has"} mileage not logged in MPG:\n\n${names}\n\nLog the oldest (${dayName(new Date(oldest+"T12:00:00"))}) first?\n\nTap Cancel to log ${thisName} anyway.`)){
+      $("mpgDay").value=oldest; const md=$("mailDay"); if(md){ md.value=oldest; } renderMpg();
+      return openMpgDay(oldest);
+    }
+  }
   const trips=mpgLeft(k);
   if(!trips.length){ toast("Nothing left to log for that day."); return; }
   const [y,m,d]=k.split("-").map(Number);
