@@ -12,7 +12,11 @@ import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
@@ -188,13 +192,66 @@ class MainActivity : android.app.Activity() {
     }
     override fun onDestroy() { super.onDestroy(); try { tone?.release() } catch (_: Exception) {}; tone = null }
 
-    /** Distinct cue per answer: Yes = high ack beep + double buzz; No = low error tone + one long buzz. */
+    /** Distinct cue per answer: Yes = high double beep; No = one low beep. Plus distinct vibration. */
     private fun feedback(inUse: Boolean) {
-        try {
-            if (inUse) toneGen()?.startTone(ToneGenerator.TONE_PROP_ACK, 180)
-            else toneGen()?.startTone(ToneGenerator.TONE_SUP_ERROR, 350)
-        } catch (_: Exception) {}
+        if (inUse) playBeep(listOf(1000.0 to 90, 0.0 to 55, 1000.0 to 90), ToneGenerator.TONE_PROP_ACK)
+        else playBeep(listOf(420.0 to 320), ToneGenerator.TONE_SUP_ERROR)
         vibrate(inUse)
+    }
+
+    /**
+     * Synthesize a short tone and force it onto the phone's built-in speaker, so it still sounds
+     * even when the van's Bluetooth is connected (media would otherwise route to Bluetooth).
+     * Falls back to ToneGenerator if anything goes wrong.
+     */
+    private fun playBeep(segments: List<Pair<Double, Int>>, fallbackTone: Int) {
+        try {
+            val sr = 44100
+            var totalMs = 0; segments.forEach { totalMs += it.second }
+            val n = sr * totalMs / 1000
+            val buf = ShortArray(n)
+            var idx = 0
+            for ((freq, ms) in segments) {
+                val cnt = sr * ms / 1000
+                val fade = (sr * 5 / 1000).coerceIn(1, cnt / 2 + 1)
+                for (i in 0 until cnt) {
+                    if (idx >= n) break
+                    var amp = 0.6
+                    if (i < fade) amp *= i.toDouble() / fade
+                    if (i >= cnt - fade) amp *= (cnt - i).toDouble() / fade
+                    val v = if (freq <= 0.0) 0.0 else Math.sin(2.0 * Math.PI * freq * i / sr)
+                    buf[idx++] = (v * amp * Short.MAX_VALUE).toInt().toShort()
+                }
+            }
+            val track = if (Build.VERSION.SDK_INT >= 23) {
+                AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                    .setAudioFormat(AudioFormat.Builder()
+                        .setSampleRate(sr).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setBufferSizeInBytes(n * 2).setTransferMode(AudioTrack.MODE_STATIC).build()
+            } else {
+                @Suppress("DEPRECATION")
+                AudioTrack(AudioManager.STREAM_MUSIC, sr, AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, n * 2, AudioTrack.MODE_STATIC)
+            }
+            track.write(buf, 0, n)
+            // Pin to the built-in speaker (API 23+); otherwise it follows the default route.
+            if (Build.VERSION.SDK_INT >= 23) try {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                    .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    ?.let { track.setPreferredDevice(it) }
+            } catch (_: Exception) {}
+            track.play()
+            android.os.Handler(mainLooper).postDelayed({
+                try { track.stop(); track.release() } catch (_: Exception) {}
+            }, (totalMs + 200).toLong())
+        } catch (_: Exception) {
+            try { toneGen()?.startTone(fallbackTone, 300) } catch (_: Exception) {}
+        }
     }
 
     @Suppress("DEPRECATION")
