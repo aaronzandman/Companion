@@ -127,6 +127,7 @@ class MainActivity : android.app.Activity() {
         col.addView(recipientIn, mw())
         col.addView(btn("📤  Export & email results", true, GREEN) { export() }, lp(dp(6)))
         col.addView(btn("Clear all counts", false, MUTED) { clearAll() }, lp(dp(2)))
+        col.addView(btn("✓  Save & close", false, GREEN) { saveAndClose() }, lp(dp(2)))
 
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(12), 0, 0) }
         col.addView(list)
@@ -222,6 +223,12 @@ class MainActivity : android.app.Activity() {
         if (idx < 0) { toast("Nothing to undo."); return }
         val out = JSONArray(); for (i in 0 until a.length()) if (i != idx) out.put(a.getJSONObject(i))
         save(out); toast("Removed last tap."); render()
+    }
+
+    /** Counts are already written to disk on every tap; this just confirms and exits the app. */
+    private fun saveAndClose() {
+        toast("Survey saved.")
+        try { if (Build.VERSION.SDK_INT >= 21) finishAndRemoveTask() else finish() } catch (_: Exception) { finish() }
     }
 
     private fun clearAll() {
