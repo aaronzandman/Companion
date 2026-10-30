@@ -12,9 +12,14 @@ import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
@@ -169,8 +174,39 @@ class MainActivity : android.app.Activity() {
             .put("use", inUse).put("t", System.currentTimeMillis())
         (if (curLat != null && curLng != null) Pair(curLat!!, curLng!!) else lastLocation())?.let { e.put("lat", it.first).put("lng", it.second) }
         val a = load(); a.put(e); save(a)
+        feedback(inUse)
         toast(if (inUse) "Yes — in use ✓" else "No — none ✗")
         render()
+    }
+
+    // ---------- audio + haptic feedback ----------
+    private var tone: ToneGenerator? = null
+    private fun toneGen(): ToneGenerator? {
+        if (tone == null) try { tone = ToneGenerator(AudioManager.STREAM_MUSIC, 85) } catch (_: Exception) {}
+        return tone
+    }
+    override fun onDestroy() { super.onDestroy(); try { tone?.release() } catch (_: Exception) {}; tone = null }
+
+    /** Distinct cue per answer: Yes = high ack beep + double buzz; No = low error tone + one long buzz. */
+    private fun feedback(inUse: Boolean) {
+        try {
+            if (inUse) toneGen()?.startTone(ToneGenerator.TONE_PROP_ACK, 180)
+            else toneGen()?.startTone(ToneGenerator.TONE_SUP_ERROR, 350)
+        } catch (_: Exception) {}
+        vibrate(inUse)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun vibrate(inUse: Boolean) {
+        val pattern = if (inUse) longArrayOf(0, 50, 90, 50) else longArrayOf(0, 400)
+        try {
+            val v = if (Build.VERSION.SDK_INT >= 31)
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            else getSystemService(VIBRATOR_SERVICE) as Vibrator
+            if (!v.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            else v.vibrate(pattern, -1)
+        } catch (_: Exception) {}
     }
 
     private fun undoLast() {

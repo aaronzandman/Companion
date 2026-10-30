@@ -4,6 +4,7 @@
     <!-- Optional: stamp the photo with GPS coordinates if allowed. The survey works fine without it. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Android 11+ package visibility: let the app see the camera app for ACTION_IMAGE_CAPTURE. -->
