@@ -9,3 +9,4 @@ rootProject.name = "Companion"
 include(":app")
 include(":diag")
 include(":mousepad")
+include(":coder")
