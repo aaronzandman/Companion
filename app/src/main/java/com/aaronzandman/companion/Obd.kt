@@ -170,26 +170,34 @@ object Obd {
                 val r = link.send(c, if (c == "ATZ") 3000 else 2000); log?.append("$c → ${r.trim().replace("\r", " ")}\n")
                 if (c == "ATZ") Thread.sleep(300)
             }
+            // Logs the raw reply (not hex-stripped) so bus errors like "SEARCHING.../UNABLE TO CONNECT" stay readable.
+            fun ask(cmd: String, t: Long): String { val r = link!!.send(cmd, t); log?.append("$cmd → ${r.trim().replace("\r", " ")}\n"); return r }
+
             // Wake the bus / let the adapter settle on the CAN protocol before asking for real data.
-            val sup = hex(link.send("0100", 4000)); log?.append("0100 → $sup\n")
-            val talks = sup.contains("4100")   // the vehicle answered the supported-PIDs query
-            if (deep) {
-                log?.append("VIN 0902 → ${hex(link.send("0902", 6000))}\n")
-                if (!talks) log?.append("(no 4100 reply — the adapter may not be on the right protocol, or the van isn't fully on)\n")
+            var talks = hex(ask("0100", 4000)).contains("4100")   // the vehicle answered the supported-PIDs query
+
+            if (deep && !talks) {
+                // The adapter isn't reaching the vehicle bus. Identify the adapter and sweep CAN protocols
+                // so we can tell a CAN-FD / wrong-protocol van apart from one that simply wasn't on.
+                ask("ATI", 1500); ask("STI", 1500)                 // ELM id, and STN id (real vLinker FD+ answers STI)
+                ask("ATDPN", 1500)                                 // which protocol auto-search ended on
+                for (p in listOf("6", "7", "8", "9", "A", "B", "C")) {   // 11/29-bit CAN at 500k/250k, incl. extended
+                    link.send("ATSP$p", 1200)
+                    if (hex(ask("0100", 5000)).contains("4100")) { talks = true; log?.append("→ connected on protocol $p\n"); break }
+                }
+                if (!talks) { link.send("ATSP0", 1000); log?.append("(no CAN protocol connected — likely CAN FD or a bus this ELM327 can't open, or the van wasn't running)\n") }
             }
 
             // 1) Standard odometer PID A6 (broadcast, no header).
-            val r1 = hex(link.send("01A6", 8000)); log?.append("01A6 → $r1\n")
-            parseA6(r1)?.let { return it / 1.609344 }
+            parseA6(hex(ask("01A6", 8000)))?.let { return it / 1.609344 }
 
             // 2) Ford mode-22 odometer DID DD01, tried on the usual module headers (PCM, then cluster).
             for (h in listOf("7E0", "726", "720", "7E1")) {
                 link.send("ATSH$h", 1500)
-                val r = hex(link.send("22DD01", 6000)); log?.append("$h 22DD01 → $r\n")
-                parseDid(r)?.let { return it / 1.609344 }
+                parseDid(hex(ask("22DD01", 6000)))?.let { return it / 1.609344 }
                 if (!deep) break   // background reads only try the PCM header to stay quick
             }
-            if (deep) log?.append("No odometer value recognized. Copy this whole log and send it so the 2026 PID can be added.\n")
+            if (deep) log?.append("No odometer value recognized. Copy this whole log and send it in the chat.\n")
             return null
         } catch (e: Exception) { log?.append("Error: ${e.message}\n"); return null }
         finally { if (shared == null) link?.close() }
