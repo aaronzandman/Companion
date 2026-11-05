@@ -146,8 +146,20 @@ object Obd {
         return Ble(ctx, dev)
     }
 
-    /** Returns the odometer in miles, or null. [log] collects what happened, for the test screen. */
-    fun readMiles(ctx: Context, log: StringBuilder? = null): Double? {
+    /** 41 A6 AABBCCDD → (AABBCCDD)/10 km (standard odometer PID, Ford Transit 2020+). */
+    private fun parseA6(resp: String): Double? =
+        Regex("41A6([0-9A-F]{8})").find(resp)?.let { val raw = it.groupValues[1].toLong(16); if (raw > 0) raw / 10.0 else null }
+
+    /** 62 DD01 AABBCC(DD) → km (Ford mode-22 odometer DID, same value from whichever module answers). */
+    private fun parseDid(resp: String): Double? =
+        Regex("62DD01([0-9A-F]{6,8})").find(resp)?.let { val v = it.groupValues[1].take(8).toLong(16); if (v > 0) v.toDouble() else null }
+
+    /**
+     * Returns the odometer in miles, or null. [log] collects what happened, for the test screen.
+     * [deep] adds extra probes (VIN, supported PIDs, the odometer DID on several module headers) so a
+     * vehicle that answers none of the usual requests can still be diagnosed from the Test reading log.
+     */
+    fun readMiles(ctx: Context, log: StringBuilder? = null, deep: Boolean = false): Double? {
       synchronized(lock) {
         var link: Link? = null
         val shared = VanSession.link()   // the van session already holds the adapter: read through it
@@ -158,17 +170,26 @@ object Obd {
                 val r = link.send(c, if (c == "ATZ") 3000 else 2000); log?.append("$c → ${r.trim().replace("\r", " ")}\n")
                 if (c == "ATZ") Thread.sleep(300)
             }
-            // Standard odometer (Ford Transit 2020+): 41 A6 AA BB CC DD → (AABBCCDD) / 10 km
+            // Wake the bus / let the adapter settle on the CAN protocol before asking for real data.
+            val sup = hex(link.send("0100", 4000)); log?.append("0100 → $sup\n")
+            val talks = sup.contains("4100")   // the vehicle answered the supported-PIDs query
+            if (deep) {
+                log?.append("VIN 0902 → ${hex(link.send("0902", 6000))}\n")
+                if (!talks) log?.append("(no 4100 reply — the adapter may not be on the right protocol, or the van isn't fully on)\n")
+            }
+
+            // 1) Standard odometer PID A6 (broadcast, no header).
             val r1 = hex(link.send("01A6", 8000)); log?.append("01A6 → $r1\n")
-            Regex("41A6([0-9A-F]{8})").find(r1)?.let { m ->
-                val raw = m.groupValues[1].toLong(16); if (raw > 0) return raw / 16.09344
+            parseA6(r1)?.let { return it / 1.609344 }
+
+            // 2) Ford mode-22 odometer DID DD01, tried on the usual module headers (PCM, then cluster).
+            for (h in listOf("7E0", "726", "720", "7E1")) {
+                link.send("ATSH$h", 1500)
+                val r = hex(link.send("22DD01", 6000)); log?.append("$h 22DD01 → $r\n")
+                parseDid(r)?.let { return it / 1.609344 }
+                if (!deep) break   // background reads only try the PCM header to stay quick
             }
-            // Ford fallback: 62 DD01 AA BB CC → km
-            link.send("ATSH7E0", 2000)
-            val r2 = hex(link.send("22DD01", 8000)); log?.append("22DD01 → $r2\n")
-            Regex("62DD01([0-9A-F]{6})").find(r2)?.let { m ->
-                val km = m.groupValues[1].toLong(16); if (km > 0) return km / 1.609344
-            }
+            if (deep) log?.append("No odometer value recognized. Copy this whole log and send it so the 2026 PID can be added.\n")
             return null
         } catch (e: Exception) { log?.append("Error: ${e.message}\n"); return null }
         finally { if (shared == null) link?.close() }

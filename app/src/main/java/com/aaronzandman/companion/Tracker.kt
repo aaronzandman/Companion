@@ -380,6 +380,16 @@ object Tracker {
         val o = try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() }
         o.keys().asSequence().toList().forEach { if (it.startsWith("$day@")) o.remove(it) }
         Store.put(c, "mpgDone", o.toString())
+        // Acknowledging is per-trip via mpgDone; clear any whole-day "already logged" mark too.
+        val a = try { JSONObject(Store.get(c, "mpgAck", "{}")) } catch (_: Exception) { JSONObject() }
+        if (a.has(day)) { a.remove(day); Store.put(c, "mpgAck", a.toString()) }
+    }
+
+    /** Marks a whole day as already logged in MPG (dismisses the "not logged" reminder) without opening MPG. */
+    fun mpgAck(c: Context, day: String, acked: Boolean) {
+        val a = try { JSONObject(Store.get(c, "mpgAck", "{}")) } catch (_: Exception) { JSONObject() }
+        if (acked) a.put(day, true) else a.remove(day)
+        Store.put(c, "mpgAck", a.toString())
     }
 
     /** Replaces a day's entries with imported ones. If that day is still running, the timer is ended first. Returns how many were saved. */

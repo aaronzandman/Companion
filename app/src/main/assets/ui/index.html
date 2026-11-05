@@ -341,6 +341,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
       <div class="row"><button class="btn sec" id="obdPick">Choose adapter</button><button class="btn sec" id="obdTest">Test reading</button></div>
       <div id="obdList"></div>
       <pre id="obdLog" class="hint" style="white-space:pre-wrap;display:none;background:var(--soft);padding:8px;border-radius:8px;font-size:12px"></pre>
+      <button class="btn sec" id="obdLogCopy" hidden style="margin-top:6px">Copy diagnostic log</button>
     </div>
     <div class="card" id="fordCard">
       <h2>Ford connection</h2>
@@ -410,7 +411,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.31.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.32.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1024,7 +1025,8 @@ function renderMpg(){
   if(miss.length){
     const names=miss.map(d=>dayName(new Date(d+"T12:00:00"))).join(", ");
     mw.innerHTML=`<b>${miss.length} earlier day${miss.length>1?"s":""} not logged in MPG:</b> ${esc(names)}. `+
-      `<a href="#" onclick="logMissingFirst();return false">Log ${miss.length>1?"the oldest":"it"} now</a>`;
+      `<a href="#" onclick="logMissingFirst();return false">Log ${miss.length>1?"the oldest":"it"} now</a> · `+
+      `<a href="#" onclick="mpgAckMissing();return false">Already logged — hide</a>`;
     mw.hidden=false;
   } else mw.hidden=true;
   $("mpgAgain").hidden=live||!trips.some(t=>done[t.key]);
@@ -1289,10 +1291,12 @@ window.onFordTest=r=>{ $("fordTestBtn").disabled=false; $("fordTestBtn").textCon
   if(!(r.code>=200&&r.code<300)){ o.textContent=`Ford returned an error (${r.code}).\n${r.error||""}`; return; }
   o.textContent=(r.miles!=null?`Odometer: ${Math.round(r.miles).toLocaleString()} miles (Ford last updated it ${r.odoTime?new Date(r.odoTime).toLocaleString():"at an unknown time"})\n`:"Ford didn't include the odometer.\n")+`Ford sent ${ (r.keys||[]).length } kinds of data: ${(r.keys||[]).join(", ")}`; refresh(); };
 function mpgLeft(k){ const done=S.mpgDone||{}; return mpgTrips(segsForDay(k),false).filter(t=>!done[t.key]&&t.to.charAt(0)!=="("); }
-// Finished days (not live) earlier than `before` that still have unlogged MPG trips, oldest first.
+// Finished days (not live), within the last 10 days and earlier than `before`, that still have
+// unlogged MPG trips and haven't been marked "already logged" — oldest first.
 function missingMpgDays(before){
+  const ack=S.mpgAck||{}, cutoff=dayKey(Date.now()-10*864e5);
   return [...new Set(allSegs().map(g=>dayKey(g.start)))]
-    .filter(d=> d<before && !segsForDay(d).some(g=>g.live) && mpgLeft(d).length>0)
+    .filter(d=> d<before && d>=cutoff && !ack[d] && !segsForDay(d).some(g=>g.live) && mpgLeft(d).length>0)
     .sort();
 }
 // Jump the Day picker to the oldest un-logged earlier day and open it in MPG.
@@ -1301,6 +1305,13 @@ function logMissingFirst(){
   const oldest=miss[0];
   $("mpgDay").value=oldest; const md=$("mailDay"); if(md){ md.value=oldest; } renderMpg();
   openMpgDay(oldest);
+}
+// Dismiss the reminder for days you already logged elsewhere (marks them "already logged").
+function mpgAckMissing(){
+  const miss=missingMpgDays($("mpgDay").value); if(!miss.length) return;
+  const names=miss.map(d=>dayName(new Date(d+"T12:00:00"))).join(", ");
+  if(!confirm(`Mark ${miss.length>1?("these "+miss.length+" days"):"this day"} as already logged in MPG and stop reminding?\n\n${names}`)) return;
+  miss.forEach(d=>A.mpgAck(d,true)); track("mpg-ack"); refresh(); toast("Marked as already logged.");
 }
 $("mpgBtn").onclick=()=>openMpgDay($("mpgDay").value);
 // Mileage goes to MPG only once the day is over: End my day (or arriving home) offers the whole day's trips as one batch.
@@ -1477,9 +1488,14 @@ function onObdScan(list){
 }
 $("obdTest").onclick=()=>{ $("obdLog").style.display="block"; $("obdLog").textContent="Connecting to the adapter… (the van must be on)"; A.obdTest(); };
 function onObdTest(r){
-  $("obdLog").textContent=(r.ok?`✓ Odometer: ${fmtMi(r.miles)} miles\n\n`:"✗ Couldn't read the odometer. Make sure the van is on and the adapter is plugged in.\n\n")+(r.log||"");
+  const head = r.ok
+    ? `✓ Odometer: ${fmtMi(r.miles)} miles\n\n`
+    : "✗ Couldn't read the odometer.\n\nIf this is a different/newer van, its odometer may use a reading method Companion doesn't know yet. Tap \"Copy diagnostic log\" below and send it in the chat so the right one can be added. Meanwhile, enter the odometer by hand above — mileage and MPG stay accurate.\n\nAlso check the van is fully on and the adapter is plugged in.\n\n";
+  $("obdLog").textContent = head + (r.log||"");
+  $("obdLogCopy").hidden = false;
   refresh();
 }
+$("obdLogCopy").onclick=()=>{ A.copy($("obdLog").textContent||""); toast("Diagnostic log copied. Paste it into the chat."); };
 // Version line: "1.11.2.38" → "1.11.2 (build 38)"
 const verTxt=v=>{ const p=String(v||"").replace(/^v/,"").split("."); return p.length>3?`${p.slice(0,3).join(".")} (build ${p[3]})`:p.join("."); };
 let UPD_BUSY=false;

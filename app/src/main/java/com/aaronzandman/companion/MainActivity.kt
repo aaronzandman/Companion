@@ -368,6 +368,7 @@ class MainActivity : Activity() {
                     .put("err", Store.get(c, "updErr", "")).put("ready", Updater.ready(c) ?: ""))
                 .put("callsExported", Store.get(c, "callsExported", "").toLongOrNull() ?: 0L)
                 .put("mpgDone", try { JSONObject(Store.get(c, "mpgDone", "{}")) } catch (_: Exception) { JSONObject() })
+                .put("mpgAck", try { JSONObject(Store.get(c, "mpgAck", "{}")) } catch (_: Exception) { JSONObject() })
                 .put("odo", Obd.log(c))
                 .put("obd", JSONObject().put("addr", Store.get(c, "obdAddr", "")).put("name", Store.get(c, "obdName", ""))
                     .put("type", Store.get(c, "obdType", "auto")).put("perm", btOk()))
@@ -538,7 +539,7 @@ class MainActivity : Activity() {
             Thread {
                 val log = StringBuilder()
                 DiagLog.w(this@MainActivity, "OBD", "Test connect tapped")
-                val mi = Obd.readMiles(this@MainActivity, log)
+                val mi = Obd.readMiles(this@MainActivity, log, deep = true)
                 DiagLog.w(this@MainActivity, "OBD", "Test connect result: ${mi?.let { "%.1f mi".format(it) } ?: "no reading"} · ${log.toString().replace("\n", " | ").take(300)}")
                 if (mi != null) Obd.record(this@MainActivity, System.currentTimeMillis(), mi)
                 val res = JSONObject().put("ok", mi != null).put("miles", mi ?: JSONObject.NULL).put("log", log.toString())
@@ -624,6 +625,8 @@ class MainActivity : Activity() {
             try { Tracker.editSegment(this@MainActivity, start.toLong(), JSONObject(json)) } catch (_: Exception) { false }
         /** Forgets which of a day's trips were logged in MPG (after you deleted them there), so they can be logged again. */
         @JavascriptInterface fun mpgReset(day: String) { Tracker.mpgReset(this@MainActivity, day) }
+        /** Marks a day as already logged (dismisses the reminder) or clears that mark. */
+        @JavascriptInterface fun mpgAck(day: String, acked: Boolean) { Tracker.mpgAck(this@MainActivity, day, acked) }
 
         /** Lets you pick a .csv log (from Companion's email, or one made for you) to bring into the log window. Calls onCsv(text). */
         @JavascriptInterface fun pickCsv() = runOnUiThread {
