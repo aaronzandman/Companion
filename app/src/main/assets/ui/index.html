@@ -411,7 +411,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.33.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.34.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1488,9 +1488,12 @@ function onObdScan(list){
 }
 $("obdTest").onclick=()=>{ $("obdLog").style.display="block"; $("obdLog").textContent="Connecting to the adapter… (the van must be on)"; A.obdTest(); };
 function onObdTest(r){
+  const v=(r.log||"").match(/VERDICT:[^\n]*/);
   const head = r.ok
     ? `✓ Odometer: ${fmtMi(r.miles)} miles\n\n`
-    : "✗ Couldn't read the odometer.\n\nIf this is a different/newer van, its odometer may use a reading method Companion doesn't know yet. Tap \"Copy diagnostic log\" below and send it in the chat so the right one can be added. Meanwhile, enter the odometer by hand above — mileage and MPG stay accurate.\n\nAlso check the van is fully on and the adapter is plugged in.\n\n";
+    : (v
+        ? "✗ "+v[0].replace("VERDICT:","").trim()+"\n\nEnter the odometer by hand above — mileage and MPG stay accurate.\n\n"
+        : "✗ Couldn't read the odometer.\n\nMake sure the van is fully on and the adapter is plugged in, then try again. Enter the odometer by hand above — mileage and MPG stay accurate.\n\n");
   $("obdLog").textContent = head + (r.log||"");
   $("obdLogCopy").hidden = false;
   refresh();

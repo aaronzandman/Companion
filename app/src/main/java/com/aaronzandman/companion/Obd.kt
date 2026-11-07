@@ -179,13 +179,26 @@ object Obd {
             if (deep && !talks) {
                 // The adapter isn't reaching the vehicle bus. Identify the adapter and sweep CAN protocols
                 // so we can tell a CAN-FD / wrong-protocol van apart from one that simply wasn't on.
-                ask("ATI", 1500); ask("STI", 1500)                 // ELM id, and STN id (real vLinker FD+ answers STI)
+                ask("ATI", 1500)
+                val sti = ask("STI", 1500)                         // STN chip id (real vLinker FD+ answers STN2120)
                 ask("ATDPN", 1500)                                 // which protocol auto-search ended on
                 for (p in listOf("6", "7", "8", "9", "A", "B", "C")) {   // 11/29-bit CAN at 500k/250k, incl. extended
                     link.send("ATSP$p", 1200)
                     if (hex(ask("0100", 5000)).contains("4100")) { talks = true; log?.append("→ connected on protocol $p\n"); break }
                 }
-                if (!talks) { link.send("ATSP0", 1000); log?.append("(no CAN protocol connected — likely CAN FD or a bus this ELM327 can't open, or the van wasn't running)\n") }
+                if (!talks) {
+                    link.send("ATSP0", 1000)
+                    val chip = Regex("STN[0-9]{3,4}").find(sti.uppercase().replace(" ", ""))?.value ?: ""
+                    val verdict = when {
+                        chip.isNotEmpty() && chip != "STN2120" ->
+                            "VERDICT: this adapter ($chip) can't read this van. It isn't a CAN-FD chip, and the van answered no standard CAN protocol (CAN ERROR = nothing acknowledged). A 2026 Transit's bus is CAN FD, so it needs a CAN-FD adapter — a genuine vLinker FD+ (STN2120), OBDLink EX or MX+. No app update can work around the adapter's chip."
+                        chip == "STN2120" ->
+                            "VERDICT: this adapter ($chip) supports CAN FD but still didn't connect. Make sure the engine is running; if it still fails the van's secure gateway may be isolating the OBD bus."
+                        else ->
+                            "VERDICT: no CAN protocol connected (adapter chip unknown). Likely CAN FD or a bus this adapter can't open, or the van wasn't running."
+                    }
+                    log?.append("$verdict\n")
+                }
             }
 
             // 1) Standard odometer PID A6 (broadcast, no header).
