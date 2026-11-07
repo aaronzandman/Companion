@@ -191,7 +191,7 @@ object Obd {
                     val chip = Regex("STN[0-9]{3,4}").find(sti.uppercase().replace(" ", ""))?.value ?: ""
                     val verdict = when {
                         chip.isNotEmpty() && chip != "STN2120" ->
-                            "VERDICT: this adapter ($chip) can't read this van. It isn't a CAN-FD chip, and the van answered no standard CAN protocol (CAN ERROR = nothing acknowledged). A 2026 Transit's bus is CAN FD, so it needs a CAN-FD adapter — a genuine vLinker FD+ (STN2120), OBDLink EX or MX+. No app update can work around the adapter's chip."
+                            "VERDICT: this adapter ($chip) can't read this van. It's a classic-CAN chip (the vLinker FD/FD+ is classic-CAN only — 'FD' means Ford, not CAN FD), and the van answered no standard CAN protocol (CAN ERROR = nothing acknowledged). A 2026 Transit's bus is CAN FD, so it needs an adapter that explicitly supports CAN FD — e.g. OBDLink EX or MX+ (STN2120). No app update can work around the adapter's chip."
                         chip == "STN2120" ->
                             "VERDICT: this adapter ($chip) supports CAN FD but still didn't connect. Make sure the engine is running; if it still fails the van's secure gateway may be isolating the OBD bus."
                         else ->
