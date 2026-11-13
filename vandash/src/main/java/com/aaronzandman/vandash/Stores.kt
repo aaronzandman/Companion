@@ -60,6 +60,17 @@ object Stores {
         return if (lat.isNaN() || lng.isNaN()) null else lat.toDouble() to lng.toDouble()
     }
 
+    fun setLastStore(c: Context, num: String) {
+        c.getSharedPreferences("vd", Context.MODE_PRIVATE).edit()
+            .putString("lastStore", num).putLong("lastStoreAt", System.currentTimeMillis()).apply()
+    }
+    fun lastStore(c: Context): String {
+        val p = c.getSharedPreferences("vd", Context.MODE_PRIVATE)
+        val n = p.getString("lastStore", null) ?: return "No directions started yet"
+        val d = java.text.SimpleDateFormat("MM/dd h:mm a", java.util.Locale.US).format(java.util.Date(p.getLong("lastStoreAt", 0L)))
+        return "Last directions: store $n ($d)"
+    }
+
     fun saveLocation(c: Context, lat: Double, lng: Double) {
         c.getSharedPreferences("vd", Context.MODE_PRIVATE).edit()
             .putFloat("lastLat", lat.toFloat()).putFloat("lastLng", lng.toFloat()).apply()

@@ -12,28 +12,25 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
-import com.smartdevicelink.transport.SdlBroadcastReceiver
 
-/** The phone side: permissions, settings, a test list, and the log of what Ford answered. */
+/** The phone side: permission, Android Auto setup steps, nearby stores, and a log. */
 class MainActivity : Activity() {
 
     private lateinit var root: LinearLayout
     private lateinit var statusBox: LinearLayout
     private lateinit var storesBox: LinearLayout
-    private lateinit var resultText: TextView
+    private lateinit var lastText: TextView
     private lateinit var logText: TextView
 
     private val dp get() = resources.displayMetrics.density
+    private val autoPkg = "com.google.android.projection.gearhead"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,30 +41,29 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(root) })
 
         root.addView(text("Van Dash", 24f, bold = true))
-        root.addView(text("Shows nearby Publix stores on the van's SYNC screen. Tap one there and it goes to Ford's " +
-            "built-in navigation. It doesn't use your phone's navigation or the van's audio.", 14f, gray = true))
+        root.addView(text("Shows a map of the nearest Publix stores in Android Auto. Tap a store and directions start " +
+            "in your Android Auto navigation app (Google Maps or Waze).", 14f, gray = true))
 
-        root.addView(header("1. Permissions"))
+        root.addView(header("1. Location"))
         statusBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(statusBox)
 
-        root.addView(header("2. When I tap a store on the van screen"))
-        val group = RadioGroup(this)
-        listOf("ask" to "Ford asks before navigating", "go" to "Start navigating right away", "stop" to "Add it as a stop on the current route")
-            .forEachIndexed { i, (key, label) ->
-                group.addView(RadioButton(this).apply {
-                    id = 100 + i; text = label; isChecked = Prefs.mode(this@MainActivity) == key
-                    setOnClickListener { Prefs.setMode(this@MainActivity, key) }
-                })
-            }
-        root.addView(group)
+        root.addView(header("2. Let Android Auto show Van Dash (one time)"))
+        root.addView(text(
+            "Android Auto hides apps that didn't come from the Play Store until you allow them:\n\n" +
+            "a. Open Android Auto settings (button below).\n" +
+            "b. Scroll to the bottom and tap Version 10 times, then tap OK.\n" +
+            "c. Tap ⋮ (top right) → Developer settings → turn on Unknown sources.\n" +
+            "d. Go back → Customize launcher → make sure Van Dash is checked.\n" +
+            "e. Reconnect to the van. Van Dash appears in the Android Auto app list.", 14f))
+        root.addView(button("Open Android Auto settings") { openAndroidAuto() })
 
-        root.addView(header("3. Test status"))
-        resultText = text("", 14f)
-        root.addView(resultText)
+        root.addView(header("Status"))
+        lastText = text("", 14f)
+        root.addView(lastText)
 
         root.addView(header("Nearby stores"))
-        root.addView(text("While connected to SYNC, tapping a store here sends it to Ford's navigation too.", 13f, gray = true))
+        root.addView(text("Tap one to open it in Google Maps on the phone.", 13f, gray = true))
         storesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(storesBox)
 
@@ -79,7 +75,7 @@ class MainActivity : Activity() {
         })
         row.addView(button("Share log") {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
-                .putExtra(Intent.EXTRA_SUBJECT, "Van Dash test log").putExtra(Intent.EXTRA_TEXT, logForSharing()), "Share log"))
+                .putExtra(Intent.EXTRA_SUBJECT, "Van Dash log").putExtra(Intent.EXTRA_TEXT, logForSharing()), "Share log"))
         })
         row.addView(button("Clear") { VLog.clear(this); refresh() })
         root.addView(row)
@@ -87,34 +83,18 @@ class MainActivity : Activity() {
         root.addView(logText)
     }
 
-    override fun onResume() {
-        super.onResume()
-        refresh()
-        // If the phone is already connected to SYNC, make sure our connection starts.
-        if (has(Manifest.permission.BLUETOOTH_CONNECT)) SdlBroadcastReceiver.queryForConnectedService(this)
-    }
+    override fun onResume() { super.onResume(); refresh() }
 
     private fun refresh() {
         statusBox.removeAllViews()
-        permRow("Nearby devices (Bluetooth)", "needed to connect to SYNC", has(Manifest.permission.BLUETOOTH_CONNECT)) {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), 1)
-        }
-        if (Build.VERSION.SDK_INT >= 33) permRow("Notifications", "shows when Van Dash is connected", has(Manifest.permission.POST_NOTIFICATIONS)) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-        }
-        val fine = has(Manifest.permission.ACCESS_FINE_LOCATION)
-        permRow("Location", "to sort stores by distance", fine) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 3)
-        }
-        if (fine) permRow("Location: Allow all the time", "so distances work with the phone in your pocket", has(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-            // Android only offers "Allow all the time" on the app's settings page.
-            toast("Tap Permissions → Location → Allow all the time")
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        permRow("Location", "to sort stores by distance and show where you are on the map",
+            has(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1)
         }
 
-        val conn = if (SdlService.connected) "Connected to SYNC now" else "Not connected to SYNC right now"
-        val last = Prefs.lastResult(this).ifEmpty { "No store sent yet" }
-        resultText.text = "$conn\n${Prefs.lastCheck(this)}\n$last"
+        val auto = try { packageManager.getPackageInfo(autoPkg, 0); true } catch (_: Exception) { false }
+        lastText.text = (if (auto) "Android Auto is installed" else "Android Auto app not found on this phone") +
+            "\n" + Stores.lastStore(this) + "\n${Stores.all(this).size} stores in the list"
 
         storesBox.removeAllViews()
         val here = Stores.phoneLocation(this)
@@ -123,25 +103,32 @@ class MainActivity : Activity() {
             storesBox.addView(text("Store ${s.num} · ${s.city} · ${"%.1f".format(mi)} mi\n${s.address}", 15f).apply {
                 setPadding(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
                 setOnClickListener {
-                    if (!SdlService.connected) { toast("Connect to the van first"); return@setOnClickListener }
-                    startService(Intent(this@MainActivity, SdlService::class.java)
-                        .setAction(SdlService.ACTION_SEND_STORE).putExtra(SdlService.EXTRA_STORE, s.num))
-                    toast("Sending store ${s.num}…")
-                    logText.postDelayed({ refresh() }, 2500)
+                    val uri = Uri.parse("geo:0,0?q=${s.lat},${s.lng}(${Uri.encode("Publix ${s.num}")})")
+                    try { startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { toast("No maps app found") }
                 }
             })
         }
         logText.text = VLog.read(this).lines().takeLast(120).reversed().joinToString("\n")
     }
 
+    private fun openAndroidAuto() {
+        val tries = listOf(
+            Intent("com.google.android.projection.gearhead.SETTINGS").setPackage(autoPkg),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", autoPkg, null)),
+        )
+        for (i in tries) {
+            try { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (_: Exception) {}
+        }
+        toast("Open Settings and search for Android Auto")
+    }
+
     private fun logForSharing(): String =
-        "Van Dash ${BuildConfig.VERSION_NAME} · Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}\n" +
-            "${Prefs.lastCheck(this)}\n\n" + VLog.read(this)
+        "Van Dash ${BuildConfig.VERSION_NAME} · Android ${Build.VERSION.RELEASE} · ${Build.MANUFACTURER} ${Build.MODEL}\n\n" +
+            VLog.read(this)
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refresh()
-        if (has(Manifest.permission.BLUETOOTH_CONNECT)) SdlBroadcastReceiver.queryForConnectedService(this)
     }
 
     // ---------- tiny view helpers ----------
@@ -176,5 +163,4 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
-
 }

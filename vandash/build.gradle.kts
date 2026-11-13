@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val vdVersion = "0.1"
+val vdVersion = "0.2"
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 
 android {
@@ -44,11 +44,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
-    packaging { resources { excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*") } }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    // SmartDeviceLink = the open-source library behind Ford SYNC AppLink.
-    implementation("com.smartdevicelink:sdl_android:5.7.0")
+    // Android Auto (Car App Library)
+    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.lifecycle:lifecycle-common:2.6.2")
 }

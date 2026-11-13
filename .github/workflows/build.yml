@@ -86,7 +86,7 @@ jobs:
             BT Diagnostic (separate helper app): https://github.com/AaronZandman/Companion/releases/latest/download/BTDiag.apk
             Mouse Pad Survey (separate app): https://github.com/AaronZandman/Companion/releases/latest/download/MousePadSurvey.apk
             Van Coder (separate app): https://github.com/AaronZandman/Companion/releases/latest/download/VanCoder.apk
-            Van Dash (separate app, Ford SYNC screen): https://github.com/AaronZandman/Companion/releases/latest/download/VanDash.apk
+            Van Dash (separate app, Android Auto store map): https://github.com/AaronZandman/Companion/releases/latest/download/VanDash.apk
 
             Signing certificate SHA-256: ${{ steps.sig.outputs.fp }}
           files: |
