@@ -58,6 +58,7 @@ button{font:inherit}
 .tcOver{background:rgba(201,138,18,.12)}
 .tcOv{color:var(--muted)}
 .tcMissTxt{color:#C8372D}
+.tcTot td{border-top:2px solid var(--line)}
 .callchk-h{font-size:12px;color:var(--muted);margin:6px 0 2px}
 .callchk{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:13px}
 .callchk input{margin-top:2px;width:18px;height:18px;flex:none}
@@ -411,7 +412,7 @@ input[type=checkbox].sw{width:22px;height:22px;accent-color:var(--road)}
     </details>
     <div class="card">
       <h2>About</h2>
-      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.35.0).</div>
+      <div class="hint" style="margin:-2px 0 6px">✓ Update test: if you can read this, Companion updated itself (now 1.36.0).</div>
       <div class="hint" id="about"></div>
       <button class="btn" id="fbBtn">Send feedback</button>
       <div class="updinfo" id="updInfo"></div>
@@ -1556,6 +1557,24 @@ function trackedDriveByDay(dates){
   (S.segments||[]).forEach(g=>{ if(g.type!=="DRIVE") return; const ymd=tcYmd(g.start); if(!want.has(ymd)) return; out[ymd]=(out[ymd]||0)+Math.max(0,(g.end-g.start))/3600000; });
   return out;
 }
+// Split tracked drive time two ways:
+//   toStore[ymd][store] = drive that leads to a store (the ticket you drove to) — folded into that store's total
+//   homeOvh[ymd]        = the drive home (no store after it that day), but only when it runs over 30 min → overhead
+const DRIVE_HOME_OVH_MIN = 30;
+function trackedTravelParts(dates){
+  const want=new Set(dates), toStore={}, homeOvh={};
+  const segs=(S.segments||[]).slice().sort((a,b)=>a.start-b.start);
+  segs.forEach((g,i)=>{
+    if(g.type!=="DRIVE") return;
+    const ymd=tcYmd(g.start); if(!want.has(ymd)) return;
+    const hrs=Math.max(0,(g.end-g.start))/3600000;
+    let st=null;                                   // the store this drive leads to, same day
+    for(let j=i+1;j<segs.length;j++){ const s=segs[j]; if(tcYmd(s.start)!==ymd) break; if(s.type==="STORE"&&s.store){ st=s.store; break; } }
+    if(st){ (toStore[ymd]=toStore[ymd]||{}); toStore[ymd][st]=(toStore[ymd][st]||0)+hrs; }   // travel to a ticket
+    else if(hrs*60 > DRIVE_HOME_OVH_MIN){ homeOvh[ymd]=(homeOvh[ymd]||0)+hrs; }               // drive home over 30 min = overhead
+  });
+  return {toStore, homeOvh};
+}
 window.onTimeCheck=(json)=>{
   let p; try{ p=JSON.parse(json); }catch(e){ window.tcScanFail("That barcode couldn't be read. Try again."); return; }
   if(!p||p.t!=="iw47"||!Array.isArray(p.d)){ window.tcScanFail("That isn't a SAP time-check barcode."); return; }
@@ -1565,32 +1584,48 @@ window.onTimeCheck=(json)=>{
   const logged={}; (p.s||[]).forEach(([st,di,h])=>{ const ymd=dates[di]; if(!ymd) return; (logged[ymd]=logged[ymd]||{}); logged[ymd][st]=(logged[ymd][st]||0)+h; });
   const overhead={}; (p.o||[]).forEach(([di,h])=>{ const ymd=dates[di]; if(ymd) overhead[ymd]=(overhead[ymd]||0)+h; });
   const travel={}; (p.tr||[]).forEach(([di,h])=>{ const ymd=dates[di]; if(ymd) travel[ymd]=(travel[ymd]||0)+h; });
-  const tracked=trackedByStoreDay(dates), drive=trackedDriveByDay(dates);
+  const tracked=trackedByStoreDay(dates);
+  const {toStore, homeOvh}=trackedTravelParts(dates);
+  // Fold travel-to-a-store into that store's tracked total — travel belongs to the ticket you drove to.
+  dates.forEach(ymd=>{ const tt=toStore[ymd]||{}; Object.keys(tt).forEach(st=>{ (tracked[ymd]=tracked[ymd]||{}); tracked[ymd][st]=(tracked[ymd][st]||0)+tt[st]; }); });
   // Build per-day comparison + weekly rollup
-  let totTrk=0, totLog=0, totMiss=0; const weekTrk={}, weekLog={}; let html="";
+  let totTrk=0, totLog=0, totMiss=0, totTrkAll=0, totSapAll=0; const weekTrk={}, weekLog={}; let html="";
   const dayBlocks=dates.map(ymd=>{
     const stores=[...new Set([...Object.keys(logged[ymd]||{}),...Object.keys(tracked[ymd]||{})])].sort();
-    let rows="", dayMiss=0;
+    let rows="", dayMiss=0, dTrk=0, dSap=0;
     stores.forEach(st=>{
       const lg=(logged[ymd]||{})[st]||0, tk=(tracked[ymd]||{})[st]||0, diff=tk-lg;
-      totTrk+=tk; totLog+=lg; weekTrk[st]=(weekTrk[st]||0)+tk; weekLog[st]=(weekLog[st]||0)+lg;
+      totTrk+=tk; totLog+=lg; dTrk+=tk; dSap+=lg; weekTrk[st]=(weekTrk[st]||0)+tk; weekLog[st]=(weekLog[st]||0)+lg;
       let cls="", note="";
       if(diff>=0.1){ cls="tcMiss"; dayMiss+=diff; note = lg<0.005 ? "no SAP time logged" : "missing "+diff.toFixed(2); }
       else if(lg-tk>=0.1){ cls="tcOver"; note="logged "+(lg-tk).toFixed(2)+" over"; }
       rows+=`<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td>${note}</td></tr>`;
     });
-    totMiss+=dayMiss;
-    const tv=(travel[ymd]||drive[ymd])?`<tr class="tcOv"><td>Travel</td><td class="num">${drive[ymd]?drive[ymd].toFixed(2):"—"}</td><td class="num">${travel[ymd]?travel[ymd].toFixed(2):"—"}</td><td>drive time (not store)</td></tr>`:"";
-    const ov=overhead[ymd]?`<tr class="tcOv"><td>Overhead</td><td class="num">—</td><td class="num">${overhead[ymd].toFixed(2)}</td><td>not tied to a store</td></tr>`:"";
-    return `<div class="tcDay"><div class="tcDayHd">${tcNice(ymd)} <span class="hint">${dayMiss>=0.1?("· missing "+dayMiss.toFixed(2)+" hr"):"· ok"}</span></div>
-      <table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th>Flag</th></tr>${rows}${tv}${ov}</table></div>`;
+    // Overhead = SAP overhead vs the drive home over 30 min; flagged if SAP is short.
+    const ovhTrk=homeOvh[ymd]||0, ovhSap=overhead[ymd]||0, oDiff=ovhTrk-ovhSap;
+    dTrk+=ovhTrk; dSap+=ovhSap;
+    let ovRow="";
+    if(ovhTrk||ovhSap){
+      let oc="tcOv", on="";
+      if(oDiff>=0.1){ oc="tcMiss"; dayMiss+=oDiff; on="missing "+oDiff.toFixed(2)+" (drive home over 30 min)"; }
+      else if(ovhSap-ovhTrk>=0.1){ oc="tcOver"; on="logged "+(ovhSap-ovhTrk).toFixed(2)+" over"; }
+      else on = ovhTrk ? "drive home over 30 min" : "not tied to a store";
+      ovRow=`<tr class="${oc}"><td>Overhead / drive home</td><td class="num">${ovhTrk?ovhTrk.toFixed(2):"—"}</td><td class="num">${ovhSap?ovhSap.toFixed(2):"—"}</td><td>${on}</td></tr>`;
+    }
+    totMiss+=dayMiss; totTrkAll+=dTrk; totSapAll+=dSap;
+    const tDiff=dTrk-dSap, tNote=Math.abs(tDiff)<0.1?"✓ matches":(tDiff>0?("SAP short "+tDiff.toFixed(2)+" hr"):("SAP over "+(-tDiff).toFixed(2)+" hr"));
+    const tCls=Math.abs(tDiff)<0.1?"":(tDiff>0?"tcMiss":"tcOver");
+    const totRow=`<tr class="tcTot ${tCls}"><td><b>Day total</b></td><td class="num"><b>${dTrk.toFixed(2)}</b></td><td class="num"><b>${dSap.toFixed(2)}</b></td><td>${tNote}</td></tr>`;
+    return `<div class="tcDay"><div class="tcDayHd">${tcNice(ymd)} <span class="hint">· ${tNote}</span></div>
+      <table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th>Flag</th></tr>${rows}${ovRow}${totRow}</table></div>`;
   }).join("");
-  // weekly rollup
+  // weekly rollup (tracked includes travel per store)
   const wStores=[...new Set([...Object.keys(weekTrk),...Object.keys(weekLog)])].sort();
   const wRows=wStores.map(st=>{ const tk=weekTrk[st]||0, lg=weekLog[st]||0, diff=tk-lg; const cls=diff>=0.1?"tcMiss":(lg-tk>=0.1?"tcOver":""); return `<tr class="${cls}"><td>#${st}</td><td class="num">${tk.toFixed(2)}</td><td class="num">${lg.toFixed(2)}</td><td class="num">${diff>=0.1?("+"+diff.toFixed(2)):(lg-tk>=0.1?("-"+(lg-tk).toFixed(2)):"✓")}</td></tr>`; }).join("");
+  const allDiff=totTrkAll-totSapAll;
   html=`<h2>Time check — ${tcNice(dates[0])}–${tcNice(dates[dates.length-1])}</h2>
-    <p class="hint">At stores: tracked ${totTrk.toFixed(2)} hr · SAP on-site ${totLog.toFixed(2)} hr · <b class="${totMiss>=0.1?"tcMissTxt":""}">${totMiss>=0.1?("missing "+totMiss.toFixed(2)+" hr"):"nothing missing"}</b>. Travel is logged separately (shown per day), so it isn't counted here. Compared only for the day(s) you imported.</p>
-    <div class="tcWeek"><div class="tcDayHd">Per store (whole import)</div><table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th class="num">Diff</th></tr>${wRows}</table></div>
+    <p class="hint">Each store includes the travel to it. Day total tracked <b>${totTrkAll.toFixed(2)} hr</b> vs SAP <b>${totSapAll.toFixed(2)} hr</b> — <b class="${allDiff>=0.1?"tcMissTxt":""}">${Math.abs(allDiff)<0.1?"they match":(allDiff>0?("SAP short "+allDiff.toFixed(2)+" hr — add it in SAP"):("SAP over "+(-allDiff).toFixed(2)+" hr"))}</b>. Fix the flagged stores/days below. (Compared only for the day(s) you imported.)</p>
+    <div class="tcWeek"><div class="tcDayHd">Per store (whole import, travel included)</div><table class="tcT"><tr><th>Store</th><th class="num">Tracked</th><th class="num">SAP</th><th class="num">Diff</th></tr>${wRows}</table></div>
     ${dayBlocks}`;
   const out=$("tcOut"); out.hidden=false; out.innerHTML=html; showTab("timecheck");
 };
