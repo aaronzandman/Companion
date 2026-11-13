@@ -6,3 +6,4 @@ local.properties
 app/src/main/assets/stores.json
 *.apk
 mousepad/src/main/assets/stores.json
+vandash/src/main/assets/stores.json

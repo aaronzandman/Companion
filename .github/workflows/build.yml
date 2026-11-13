@@ -37,6 +37,8 @@ jobs:
           python3 -c "import json;print(len(json.load(open('app/src/main/assets/stores.json'))),'stores')"
           mkdir -p mousepad/src/main/assets
           cp app/src/main/assets/stores.json mousepad/src/main/assets/stores.json
+          mkdir -p vandash/src/main/assets
+          cp app/src/main/assets/stores.json vandash/src/main/assets/stores.json
           # Same anonymous usage-count site as Route Planner (blank = nothing is sent).
           code=$(curl -fsSL https://raw.githubusercontent.com/AaronZandman/Route2/main/source/analytics.txt 2>/dev/null | tr -cd 'a-z0-9-' || true)
           sed -i "s/@@GC_CODE@@/${code}/" app/src/main/assets/ui/index.html
@@ -52,7 +54,7 @@ jobs:
       - name: Build the app
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: gradle :app:assembleRelease :diag:assembleRelease :mousepad:assembleRelease :coder:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+        run: gradle :app:assembleRelease :diag:assembleRelease :mousepad:assembleRelease :coder:assembleRelease :vandash:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Rename
         id: v
@@ -61,6 +63,7 @@ jobs:
           cp diag/build/outputs/apk/release/diag-release.apk BTDiag.apk
           cp mousepad/build/outputs/apk/release/mousepad-release.apk MousePadSurvey.apk
           cp coder/build/outputs/apk/release/coder-release.apk VanCoder.apk
+          cp vandash/build/outputs/apk/release/vandash-release.apk VanDash.apk
           echo "ver=$(grep -oP 'appVersion = "\K[0-9.]+' app/build.gradle.kts).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Signer fingerprint
@@ -83,6 +86,7 @@ jobs:
             BT Diagnostic (separate helper app): https://github.com/AaronZandman/Companion/releases/latest/download/BTDiag.apk
             Mouse Pad Survey (separate app): https://github.com/AaronZandman/Companion/releases/latest/download/MousePadSurvey.apk
             Van Coder (separate app): https://github.com/AaronZandman/Companion/releases/latest/download/VanCoder.apk
+            Van Dash (separate app, Ford SYNC screen): https://github.com/AaronZandman/Companion/releases/latest/download/VanDash.apk
 
             Signing certificate SHA-256: ${{ steps.sig.outputs.fp }}
           files: |
@@ -90,6 +94,7 @@ jobs:
             BTDiag.apk
             MousePadSurvey.apk
             VanCoder.apk
+            VanDash.apk
           make_latest: true
 
       - name: Save the build log for review (only if the build failed)
