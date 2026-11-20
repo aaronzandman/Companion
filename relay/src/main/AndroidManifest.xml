@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- SmartDeviceLink (send a destination to the built-in SYNC nav) -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:targetApi="31" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="33" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:targetApi="34" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
 
-    <!-- See that a navigation app exists, so the Navigate button can resolve it. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -13,6 +21,12 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="com.smartdevicelink.router.service" />
+        </intent>
+        <intent>
+            <action android:name="sdl.router.startservice" />
         </intent>
     </queries>
 
@@ -49,5 +63,48 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- SmartDeviceLink: connect to the head unit and set the SYNC navigation destination. -->
+        <activity
+            android:name="com.smartdevicelink.transport.USBAccessoryAttachmentActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+            </intent-filter>
+            <meta-data android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" android:resource="@xml/accessory_filter" />
+        </activity>
+
+        <service
+            android:name=".SdlService"
+            android:exported="true"
+            android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".SdlRouterService"
+            android:exported="true"
+            android:process="com.smartdevicelink.router"
+            android:foregroundServiceType="connectedDevice">
+            <intent-filter>
+                <action android:name="com.smartdevicelink.router.service" />
+            </intent-filter>
+            <meta-data android:name="@string/sdl_router_service_version_name" android:value="@integer/sdl_router_service_version_value" />
+        </service>
+
+        <receiver
+            android:name=".SdlReceiver"
+            android:enabled="true"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="com.smartdevicelink.USB_ACCESSORY_ATTACHED" />
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="sdl.router.startservice" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name="com.smartdevicelink.managers.lockscreen.SDLLockScreenActivity"
+            android:launchMode="singleTop" />
     </application>
 </manifest>

@@ -48,4 +48,6 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // SmartDeviceLink — sends a destination into the vehicle's built-in SYNC navigation.
+    implementation("com.smartdevicelink:sdl_android:5.8.0")
 }

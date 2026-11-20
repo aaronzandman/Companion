@@ -1,5 +1,6 @@
 package com.aaronzandman.relay
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
@@ -7,6 +8,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -138,6 +140,26 @@ class MainActivity : Activity() {
     }
     private fun clearDone() { prefs().edit().putString("done", "[]").apply(); render(); toast("Day reset.") }
 
+    // ---------- Ford SYNC (SmartDeviceLink) ----------
+    private fun ensureSdlPerms() {
+        val need = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_CONNECT)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (need.isNotEmpty()) try { requestPermissions(need.toTypedArray(), 7) } catch (_: Exception) {}
+    }
+    private fun sendToSync(s: JSONObject) {
+        val lat = num(s, "lat"); val lng = num(s, "lng")
+        if (lat == null || lng == null) { toast("That stop has no coordinates to send."); return }
+        ensureSdlPerms()
+        try {
+            val i = Intent(this, SdlService::class.java)
+                .putExtra("lat", lat).putExtra("lng", lng)
+                .putExtra("name", s.optString("name")).putExtra("addr", s.optString("addr"))
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+            toast("Sending to SYNC — connect the van (USB or Bluetooth) with AppLink developer mode on. See Diagnostics for status.")
+        } catch (e: Exception) { toast("Couldn't start the SYNC sender: ${e.message}") }
+    }
+
     // ---------- navigation ----------
     private fun startNav(lat: Double?, lng: Double?, label: String) {
         val uris = ArrayList<Uri>()
@@ -184,6 +206,7 @@ class MainActivity : Activity() {
             card.addView(TextView(this).apply { text = s.optString("name"); textSize = 20f; setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(2), 0, 0) })
             card.addView(TextView(this).apply { text = s.optString("addr"); textSize = 14f; setTextColor(MUTED) })
             card.addView(bigBtn("▶  Navigate to this stop") { startNav(num(s, "lat"), num(s, "lng"), s.optString("name")) }, lp(dp(10)))
+            card.addView(btn("📡  Send to Ford SYNC nav (experimental)", false, BLUE) { sendToSync(s) }, lp(dp(6)))
             card.addView(btn("✓  Mark done & go to next", false, GREEN) { setDone(s.optString("n"), true) }, lp(dp(6)))
             nextBox.addView(card, lp(dp(6)))
         } else {
@@ -239,6 +262,8 @@ class MainActivity : Activity() {
         sb.append("Navigation app: ").append(if (navAvailable()) "found ✓" else "NOT found ✗").append("\n")
         sb.append("Can install updates: ").append(if (Updater.canInstall(this)) "yes" else "no (allow in settings)").append("\n")
         sb.append("Update: ").append(when { ready != null -> "ready to install ($ready)"; latest.isNullOrBlank() -> "not checked yet"; else -> "up to date" }).append("\n")
+        val sdl = prefs().getString("sdlStatus", "")
+        sb.append("Ford SYNC (SDL): ").append(if (sdl.isNullOrBlank()) "not tried yet" else sdl).append("\n")
         return sb.toString()
     }
 
