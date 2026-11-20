@@ -114,10 +114,10 @@ public class SdlService extends Service {
         if (sdlManager != null) return;
         MultiplexTransportConfig transport = new MultiplexTransportConfig(this, APP_ID, MultiplexTransportConfig.FLAG_MULTI_SECURITY_OFF);
 
-        // Register as a NAVIGATION app: on some policy tables this grants the location permission group
-        // that a DEFAULT app is denied. (Last-ditch attempt against a DISALLOWED SendLocation.)
+        // DEFAULT type: the vehicle refuses SendLocation on policy regardless of type, and NAVIGATION
+        // forced an intrusive "Locked for your safety" screen every connect, so stay on DEFAULT.
         Vector<AppHMIType> appType = new Vector<>();
-        appType.add(AppHMIType.NAVIGATION);
+        appType.add(AppHMIType.DEFAULT);
 
         SdlManagerListener listener = new SdlManagerListener() {
             @Override public void onStart() {

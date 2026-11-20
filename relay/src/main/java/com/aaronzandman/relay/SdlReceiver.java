@@ -25,6 +25,10 @@ public class SdlReceiver extends SdlBroadcastReceiver {
     @Override
     public void onSdlEnabled(Context context, Intent intent) {
         DebugTool.logInfo(TAG, "SDL Enabled");
+        // On-demand only: don't auto-start/connect every time the phone joins the car. The SYNC send is
+        // confirmed blocked by Ford policy on this vehicle, so the service is started solely by the
+        // "Send to Ford SYNC nav" button. This avoids a background notification on every drive.
+        if (true) return;
         intent.setClass(context, SdlService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent pendingIntent = (PendingIntent) intent.getParcelableExtra(TransportConstants.PENDING_INTENT_EXTRA);
