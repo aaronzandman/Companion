@@ -2,12 +2,17 @@ package com.aaronzandman.relay
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -15,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Executors
 
 /**
  * Next Stop — receives a route from the web planner ("Send to Next Stop app") and shows a punch list.
@@ -33,6 +39,8 @@ class MainActivity : Activity() {
     private lateinit var listBox: LinearLayout
     private lateinit var nextBox: LinearLayout
     private lateinit var subtitle: TextView
+    private lateinit var updateBar: TextView
+    private val io = Executors.newSingleThreadExecutor()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun prefs() = getSharedPreferences("nextstop", Context.MODE_PRIVATE)
@@ -47,6 +55,14 @@ class MainActivity : Activity() {
         subtitle = TextView(this).apply { textSize = 13f; setTextColor(MUTED); setPadding(0, dp(2), 0, dp(10)) }
         col.addView(subtitle)
 
+        // Silent update bar — hidden unless a newer build has been downloaded.
+        updateBar = TextView(this).apply {
+            textSize = 14f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.WHITE)
+            setBackgroundColor(BLUE); setPadding(dp(12), dp(10), dp(12), dp(10)); gravity = Gravity.CENTER
+            visibility = View.GONE; setOnClickListener { install() }
+        }
+        col.addView(updateBar, lp(dp(2)))
+
         nextBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(nextBox)
 
@@ -54,14 +70,41 @@ class MainActivity : Activity() {
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(listBox)
 
-        col.addView(btn("↺  Reset day (clear done)", false, MUTED) { clearDone() }, lp(dp(14)))
+        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        btnRow.addView(btn("↺  Reset day", false, MUTED) { clearDone() }, half())
+        btnRow.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        btnRow.addView(btn("🔧  Diagnostics", false, MUTED) { showDiagnostics() }, half())
+        col.addView(btnRow, lp(dp(14)))
 
         setContentView(root)
         handleIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent) }
-    override fun onResume() { super.onResume(); render() }
+    override fun onResume() { super.onResume(); render(); showUpdateBar(); silentUpdateCheck() }
+    override fun onDestroy() { super.onDestroy(); io.shutdownNow() }
+
+    // ---------- auto update (silent unless one is ready) ----------
+    private fun showUpdateBar() {
+        val tag = Updater.ready(this)
+        if (tag != null) { updateBar.text = "⬆ Update available — tap to install"; updateBar.visibility = View.VISIBLE }
+        else updateBar.visibility = View.GONE
+    }
+    private fun silentUpdateCheck() {
+        io.execute {
+            val r = try { Updater.check(this, 6 * 60 * 60 * 1000L) } catch (_: Exception) { null }   // at most every 6 h
+            if (r?.optBoolean("ready") == true) runOnUiThread { showUpdateBar() }                      // only surfaces when ready
+        }
+    }
+    private fun install() {
+        if (Updater.ready(this) == null) { toast("No update is waiting."); return }
+        if (!Updater.canInstall(this)) {
+            toast("Allow Next Stop to install updates, then tap the bar again.")
+            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
+            return
+        }
+        try { startActivity(Updater.installIntent(this)) } catch (_: Exception) { toast("Couldn't open the installer.") }
+    }
 
     // ---------- receiving the route ----------
     private fun handleIntent(intent: Intent?) {
@@ -178,7 +221,73 @@ class MainActivity : Activity() {
 
     private fun num(o: JSONObject, k: String): Double? = if (o.isNull(k)) null else o.optDouble(k).let { if (it.isNaN()) null else it }
 
+    // ---------- diagnostics ----------
+    private fun navAvailable(): Boolean = try {
+        Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=37.5,-77.4")).resolveActivity(packageManager) != null ||
+        Intent(Intent.ACTION_VIEW, Uri.parse("geo:37.5,-77.4?q=37.5,-77.4")).resolveActivity(packageManager) != null
+    } catch (_: Exception) { false }
+
+    private fun report(): String {
+        val stops = route(); val done = doneSet()
+        val lastRecv = try { JSONObject(prefs().getString("route", "{}") ?: "{}").optLong("made", 0L) } catch (_: Exception) { 0L }
+        val latest = prefs().getString("updLatest", ""); val ready = Updater.ready(this)
+        val sb = StringBuilder()
+        sb.append("Next Stop ").append(BuildConfig.VERSION_NAME).append("\n")
+        sb.append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append(" · Android ").append(Build.VERSION.RELEASE).append("\n\n")
+        sb.append("Route loaded: ").append(if (stops.length() > 0) "${stops.length()} stops (${done.size} done)" else "none").append("\n")
+        if (lastRecv > 0) sb.append("Received: ").append(java.text.SimpleDateFormat("EEE M/d h:mm a", java.util.Locale.US).format(java.util.Date(lastRecv))).append("\n")
+        sb.append("Navigation app: ").append(if (navAvailable()) "found ✓" else "NOT found ✗").append("\n")
+        sb.append("Can install updates: ").append(if (Updater.canInstall(this)) "yes" else "no (allow in settings)").append("\n")
+        sb.append("Update: ").append(when { ready != null -> "ready to install ($ready)"; latest.isNullOrBlank() -> "not checked yet"; else -> "up to date" }).append("\n")
+        return sb.toString()
+    }
+
+    private fun testNavigation() {
+        val stops = route(); val done = doneSet(); var target: JSONObject? = null
+        for (i in 0 until stops.length()) { val s = stops.getJSONObject(i); if (!done.contains(s.optString("n"))) { target = s; break } }
+        if (target == null && stops.length() > 0) target = stops.getJSONObject(0)
+        if (target != null) { toast("Launching navigation to the next stop…"); startNav(num(target, "lat"), num(target, "lng"), target.optString("name")) }
+        else {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=Publix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); toast("Opened your maps app (no route loaded).") }
+            catch (_: Exception) { toast("No maps/navigation app found.") }
+        }
+    }
+
+    private fun showDiagnostics() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(10), dp(18), dp(4)) }
+        val txt = TextView(this).apply { text = report(); textSize = 13.5f; setTextColor(Color.parseColor("#263238")); typeface = Typeface.MONOSPACE }
+        box.addView(txt)
+        box.addView(btn("📋  Copy report", false, MUTED) {
+            try { getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("NextStop", txt.text)); toast("Copied.") } catch (_: Exception) {}
+        }, lp(dp(10)))
+        val d = AlertDialog.Builder(this).setTitle("Diagnostics")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Test navigation") { _, _ -> testNavigation() }
+            .setNegativeButton("Check updates", null)
+            .create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                toast("Checking for updates…")
+                io.execute {
+                    val r = try { Updater.check(this, 0L) } catch (_: Exception) { JSONObject().put("error", "x") }
+                    runOnUiThread {
+                        showUpdateBar(); txt.text = report()
+                        toast(when {
+                            r.optBoolean("ready") -> "Update downloaded — tap the blue bar to install"
+                            r.optBoolean("upToDate") -> "Up to date (${BuildConfig.VERSION_NAME})"
+                            r.has("error") -> "Couldn't check right now"
+                            else -> "Checked"
+                        })
+                    }
+                }
+            }
+        }
+        d.show()
+    }
+
     // ---------- view helpers ----------
+    private fun half() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
     private fun lp(top: Int) = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = top }
     private fun btn(t: String, primary: Boolean, stroke: Int, on: () -> Unit) = Button(this).apply {
         text = t; isAllCaps = false; textSize = 15f; minHeight = dp(46); setOnClickListener { on() }

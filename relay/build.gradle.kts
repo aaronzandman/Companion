@@ -37,6 +37,7 @@ android {
                             else signingConfigs.getByName("debug")
         }
     }
+    buildFeatures { buildConfig = true }
     lint { checkReleaseBuilds = false; abortOnError = false }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
