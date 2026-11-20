@@ -115,10 +115,11 @@ public class SdlService extends Service {
                     @Override public void onNotified(RPCNotification notification) {
                         OnHMIStatus status = (OnHMIStatus) notification;
                         if (status.getWindowID() != null && status.getWindowID() != PredefinedWindows.DEFAULT_WINDOW.getValue()) return;
-                        if (status.getHmiLevel() != null && status.getHmiLevel() != HMILevel.HMI_NONE) {
-                            hmiReady = true;
-                            trySend();
-                        }
+                        // The app is registered and receiving HMI updates — SendLocation can go now; it does
+                        // not need the app to be open on the SYNC screen (any HMI level, including NONE).
+                        hmiReady = true;
+                        saveStatus("Connected to SYNC — sending the destination…");
+                        trySend();
                     }
                 });
             }
