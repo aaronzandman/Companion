@@ -49,6 +49,15 @@ public class SdlService extends Service {
     private SdlManager sdlManager = null;
     private boolean hmiReady = false;
     private boolean sessionStarted = false;
+    private HMILevel level = HMILevel.HMI_NONE;
+    private int lastTriedRank = -1;   // highest HMI level we've already tried sending at (-1 = none yet)
+
+    private static int rank(HMILevel l) {
+        if (l == HMILevel.HMI_FULL) return 3;
+        if (l == HMILevel.HMI_LIMITED) return 2;
+        if (l == HMILevel.HMI_BACKGROUND) return 1;
+        return 0; // NONE
+    }
 
     // The destination waiting to be sent (set from the activity via an intent).
     private static Double pLat = null, pLng = null;
@@ -85,6 +94,7 @@ public class SdlService extends Service {
             pLng = intent.getDoubleExtra("lng", 0);
             pName = intent.getStringExtra("name");
             pAddr = intent.getStringExtra("addr");
+            lastTriedRank = -1;   // a fresh destination — allow a send at the current level again
         }
         if (sdlManager == null) startProxy(); else trySend();
         return START_STICKY;
@@ -115,11 +125,9 @@ public class SdlService extends Service {
                     @Override public void onNotified(RPCNotification notification) {
                         OnHMIStatus status = (OnHMIStatus) notification;
                         if (status.getWindowID() != null && status.getWindowID() != PredefinedWindows.DEFAULT_WINDOW.getValue()) return;
-                        // The app is registered and receiving HMI updates — SendLocation can go now; it does
-                        // not need the app to be open on the SYNC screen (any HMI level, including NONE).
+                        if (status.getHmiLevel() != null) level = status.getHmiLevel();
                         hmiReady = true;
-                        saveStatus("Connected to SYNC — sending the destination…");
-                        trySend();
+                        trySend();   // retries at a higher HMI level (e.g. when the app is opened on SYNC)
                     }
                 });
             }
@@ -145,6 +153,8 @@ public class SdlService extends Service {
 
     private void trySend() {
         if (sdlManager == null || !hmiReady || pLat == null) return;
+        if (rank(level) <= lastTriedRank) return;   // already tried at this level; wait for a higher one
+        lastTriedRank = rank(level);
         final String name = pName;
         SendLocation sl = new SendLocation();
         sl.setLatitudeDegrees(pLat);
@@ -154,12 +164,20 @@ public class SdlService extends Service {
         sl.setOnRPCResponseListener(new OnRPCResponseListener() {
             @Override public void onResponse(int correlationId, final RPCResponse response) {
                 final boolean ok = response != null && Boolean.TRUE.equals(response.getSuccess());
-                saveStatus(ok ? ("Sent to SYNC: " + name) : ("SYNC refused SendLocation" + (response != null && response.getInfo() != null ? " (" + response.getInfo() + ")" : "")));
-                main.post(() -> Toast.makeText(SdlService.this, ok ? "Sent to the Ford SYNC navigation." : "SYNC didn't accept the destination.", Toast.LENGTH_LONG).show());
+                String rc = (response != null && response.getResultCode() != null) ? response.getResultCode().toString() : "no response";
+                String info = (response != null) ? response.getInfo() : null;
+                if (ok) {
+                    pLat = null; pLng = null; pName = null; pAddr = null;   // delivered — consume it
+                    saveStatus("Sent to SYNC: " + name);
+                } else {
+                    // keep the pending destination so a higher HMI level (app opened on SYNC) can retry
+                    String hint = (level == HMILevel.HMI_NONE) ? " · try opening Next Stop on the SYNC Apps screen, then tap Send again" : "";
+                    saveStatus("SYNC refused SendLocation — " + rc + (info != null ? " (" + info + ")" : "") + " · at HMI " + level + hint);
+                }
+                main.post(() -> Toast.makeText(SdlService.this, ok ? "Sent to the Ford SYNC navigation." : ("SYNC refused it (" + rc + ")"), Toast.LENGTH_LONG).show());
             }
         });
+        saveStatus("Sending destination to SYNC… (HMI " + level + ")");
         sdlManager.sendRPC(sl);
-        pLat = null; pLng = null; pName = null; pAddr = null;   // consume it
-        saveStatus("Destination sent to SYNC…");
     }
 }
