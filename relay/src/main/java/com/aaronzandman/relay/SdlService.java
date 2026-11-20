@@ -48,6 +48,7 @@ public class SdlService extends Service {
 
     private SdlManager sdlManager = null;
     private boolean hmiReady = false;
+    private boolean sessionStarted = false;
 
     // The destination waiting to be sent (set from the activity via an intent).
     private static Double pLat = null, pLng = null;
@@ -108,6 +109,7 @@ public class SdlService extends Service {
 
         SdlManagerListener listener = new SdlManagerListener() {
             @Override public void onStart() {
+                sessionStarted = true;
                 saveStatus("Connected to SYNC; waiting for the screen.");
                 sdlManager.addOnRPCNotificationListener(FunctionID.ON_HMI_STATUS, new OnRPCNotificationListener() {
                     @Override public void onNotified(RPCNotification notification) {
@@ -133,7 +135,11 @@ public class SdlService extends Service {
         builder.setAppIcon(icon);
         sdlManager = builder.build();
         sdlManager.start();
-        saveStatus("Starting SYNC connection…");
+        saveStatus("Starting SYNC connection… (waiting for the van)");
+        // If no head unit links within 25 s, say so plainly instead of sitting on "Starting…".
+        main.postDelayed(() -> {
+            if (!sessionStarted) saveStatus("No SYNC connection. Make sure: the van is running, the phone is plugged into the SYNC USB port (or Bluetooth-paired to SYNC), and AppLink is enabled on SYNC. If it still won't connect, SYNC is likely blocking this unapproved app.");
+        }, 25000);
     }
 
     private void trySend() {
